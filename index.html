@@ -838,56 +838,66 @@ function buildStage2(){
   while(y>S.finish+70){
     y -= rnd(40,48);
     const t=clamp((1960-y)/2200,0,1);
-    const half=lerp(1050, 700, t);
-    const w=rnd(70,130);
-    let nx=clamp(px+rnd(-150,150), -half, half-w);
-    px=nx+w/2;
-    if(Math.random()<0.74){
-      platforms.push({x:nx,y:y,w:w,h:13,type:'tuft'});
-    } else {
-      // a gap you cross by gripping a hair wall
-      const wallX = nx + (Math.random()<0.5?-70:70);
-      const wall={x:clamp(wallX,-half,half-30), y:y-170, w:30, h:250, type:'hairwall', shorn:0};
+    const half=lerp(1040,700,t);
+    const w=rnd(74,128);
+    const nx=placeX(prev,w,52,-half,half);
+    const pl={x:nx,y:y,w:w,h:13,type:'tuft'};
+    platforms.push(pl); prev=pl; since++;
+    // hair walls hang beside the route: a faster line for anyone who grips
+    if(since>3 && Math.random()<0.34){
+      since=0;
+      const side=Math.random()<0.5?-1:1;
+      const wx=clamp(nx+side*rnd(60,120), -half, half-30);
+      const wall={x:wx,y:y-250,w:30,h:260,type:'hairwall',shorn:0};
       platforms.push(wall); hairWalls.push(wall);
+      // landings either side of the wall top, so the leap off always has a target
+      const topW=rnd(62,92);
+      platforms.push({x:clamp(wx-topW-6,-half,half-topW), y:y-236, w:topW, h:13, type:'tuft'});
+      platforms.push({x:clamp(wx+36,-half,half-topW),    y:y-236, w:topW, h:13, type:'tuft'});
     }
-    if(Math.random()<0.18){
-      const w2=rnd(54,86);
-      const x2=(nx<0)?rnd(60,half-w2):rnd(-half,-120);
-      platforms.push({x:x2,y:y-rnd(10,24),w:w2,h:13,type:'tuft'});
+    if(Math.random()<0.16){
+      const w2=rnd(54,84);
+      platforms.push({x:placeX(pl,w2,46,-half,half),y:y-rnd(10,20),w:w2,h:13,type:'tuft'});
     }
-  }
-  // a run of hair walls near the jawline where tufts are sparse
-  for(let i=0;i<5;i++){
-    const wy=1500-i*230, wx=(i%2?1:-1)*rnd(260,520);
-    const wall={x:wx,y:wy,w:30,h:260,type:'hairwall',shorn:0};
-    platforms.push(wall); hairWalls.push(wall);
   }
   powerups.push({x:-420,y:1500,type:'ball'});
   powerups.push({x:380,y:700,type:'laptop'});
   powerups.push({x:-120,y:60,type:'badge'});
 }
 
-/* ---- STAGE 3: the forehead. dash gaps + ridges driven by his brows ---- */
+/* ---- STAGE 3: the forehead. jumpable tiers, with dash gaps that stay in range ---- */
 function buildStage3(){
-  const S=STAGES[2];
-  platforms.push({x:-420,y:-600,w:840,h:40,type:'brow'});
-  let y=-640, px=0, n=0;
-  while(y>S.finish+80){
-    y -= rnd(52,62);
-    const w=rnd(92,170);
-    const wide=Math.random()<0.34;                     // a gap that needs the dash
-    let nx=clamp(px+(wide?rnd(150,230)*(Math.random()<0.5?-1:1):rnd(-120,120)), -1180, 1180-w);
-    px=nx+w/2;
-    const moving=Math.random()<0.38;
-    platforms.push({
-      x:nx, y:y, w:w, h:14, type:'wrinkle',
-      baseY:y, amp: moving?rnd(26,46):0, phase: rnd(0,6.28),
-      appear: Math.random()<0.18                        // only solid while his brows are up
-    });
-    n++;
+  const S=STAGES[2], x0=-1180, x1=1180;
+  let prev={x:-420,y:-600,w:840};
+  platforms.push({x:prev.x,y:prev.y,w:prev.w,h:40,type:'brow'});
+  let y=-600;
+  while(y>S.finish+90){
+    y -= rnd(42,50);
+    const w=rnd(96,168);
+    const dashGap=Math.random()<0.30;
+    // a dash gap is wider than a jump but still inside dash range
+    const nx=placeX(prev, w, dashGap?96:50, x0, x1);
+    const moving=Math.random()<0.34;
+    const pl={x:nx, y:y, w:w, h:14, type:'wrinkle',
+              baseY:y, amp: moving?rnd(12,20):0, phase:rnd(0,6.28),
+              appear: Math.random()<0.16};
+    platforms.push(pl); prev=pl;
   }
-  // the summit, up in the hair
-  platforms.push({x:-170,y:S.finish-30,w:340,h:30,type:'summit'});
+  // staircase up to the summit, each step inside jump range, ending under the flag
+  const sumX=-170, sumW=340, sumY=S.finish+14;
+  let step=prev;
+  while(step.y - 46 > sumY + 52){
+    const w=rnd(90,130);
+    const sy=step.y-44;
+    // walk horizontally toward the summit, but never further than one jump
+    const want=clamp(sumX+sumW/2-w/2, step.x-w-50, step.x+step.w+50);
+    const nx=clamp(want,-1180,1180-w);
+    const pl={x:nx,y:sy,w:w,h:14,type:'wrinkle',baseY:sy,amp:0,phase:0,appear:false};
+    platforms.push(pl); step=pl;
+  }
+  // final landing right below the summit
+  platforms.push({x:sumX+60,y:sumY+48,w:220,h:14,type:'wrinkle',baseY:sumY+48,amp:0,phase:0,appear:false});
+  platforms.push({x:sumX,y:sumY,w:sumW,h:30,type:'summit'});
   powerups.push({x:520,y:-1000,type:'ball'});
   powerups.push({x:-560,y:-1600,type:'laptop'});
   powerups.push({x:180,y:-2150,type:'badge'});
