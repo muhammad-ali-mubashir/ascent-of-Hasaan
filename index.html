@@ -236,7 +236,7 @@ function beardPath(){
 }
 function drawBeard(){
   const cut=pose.beardCut, detail=cam.zoom>0.2;
-  beardPath(); fill(cut>0.85?P.skinDk:P.hairDeep);
+  beardPath(); fill(cut>0.85?P.skinDk:P.hair);
   if(detail){
     ctx.save(); beardPath(); ctx.clip();
     for(let cx=-1300; cx<=1300; cx+=82){
@@ -765,7 +765,11 @@ function tryLand(prevBottom){
 let wasAir=false;
 function onLand(p){
   if(p.type==='crumble' && p.timer===undefined) p.timer=0.5;
-  if(wasAir && player.vy>120) sfx(150,.05,'square',.03,0.7);
+  if(wasAir && player.vy>120){
+    sfx(150,.05,'square',.03,0.7);
+    for(let i=0;i<4;i++) parts.push({x:player.x+rnd(0,11),y:player.y+player.h,
+      vx:rnd(-50,50),vy:rnd(-30,-5),life:.3,c:'rgba(255,240,215,0.8)'});
+  }
 }
 
 /* ===========================================================================
@@ -848,12 +852,12 @@ function buildStage2(){
       since=0;
       const side=Math.random()<0.5?-1:1;
       const wx=clamp(nx+side*rnd(60,120), -half, half-30);
-      const wall={x:wx,y:y-250,w:30,h:260,type:'hairwall',shorn:0};
+      const wall={x:wx,y:y-180,w:30,h:190,type:'hairwall',shorn:0};
       platforms.push(wall); hairWalls.push(wall);
       // landings either side of the wall top, so the leap off always has a target
       const topW=rnd(62,92);
-      platforms.push({x:clamp(wx-topW-6,-half,half-topW), y:y-236, w:topW, h:13, type:'tuft'});
-      platforms.push({x:clamp(wx+36,-half,half-topW),    y:y-236, w:topW, h:13, type:'tuft'});
+      platforms.push({x:clamp(wx-topW-6,-half,half-topW), y:y-162, w:topW, h:13, type:'tuft'});
+      platforms.push({x:clamp(wx+36,-half,half-topW),    y:y-162, w:topW, h:13, type:'tuft'});
     }
     if(Math.random()<0.16){
       const w2=rnd(54,84);
@@ -996,7 +1000,7 @@ function drawPlatform(p){
 let state='title';        // title | cut | play | dead | win
 let cutStage=0, cutT=0, cutDone=false;
 let banner='', bannerT=0;
-let perfNow=0, gameT=0;
+let perfNow=0, gameT=0, paused=false;
 
 function camTo(x,y,z){ cam.x=x; cam.y=y; cam.zoom=z; }
 function camLerpTo(x,y,z,t){ cam.x=lerp(cam.x,x,t); cam.y=lerp(cam.y,y,t); cam.zoom=lerp(cam.zoom,z,t); }
@@ -1170,9 +1174,9 @@ function updatePlay(dt,inp){
     player.vx=0; player.vy=0;
     player.x = (player.x+player.w/2 < touching.x+touching.w/2)
              ? touching.x-player.w : touching.x+touching.w;
-    if(inp.up){ player.y-=52*dt; player.stamina-=dt*0.55; }
-    else if(inp.down){ player.y+=74*dt; player.stamina-=dt*0.2; }
-    else player.stamina-=dt*0.34;
+    if(inp.up){ player.y-=78*dt; player.stamina-=dt*0.38; }
+    else if(inp.down){ player.y+=96*dt; player.stamina-=dt*0.12; }
+    else player.stamina-=dt*0.22;
     player.face = (player.x < touching.x) ? 1 : -1;
     if(player.stamina<=0){ player.grabbing=false; player.stamina=0; }
   } else player.grabbing=false;
