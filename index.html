@@ -65,7 +65,7 @@ function hash(n){const s=Math.sin(n*127.1)*43758.5453;return s-Math.floor(s);}
 /* origin: between the eyes. +y is down. units are "face pixels" (FP).        */
 const A={
   cranTop:-2050, hairTop:-2780, hairSideW:1560,
-  hairline:-1310, brow:-300, eyeY:0, eyeDX:555, eyeRX:300, eyeRY:150,
+  hairline:-1310, brow:-620, eyeY:0, eyeDX:555, eyeRX:300, eyeRY:166,
   noseTop:-150, noseBase:640, noseHalfW:220,
   lipY:1015, mouthHalfW:430,
   chin:1935, jawHalfW:1130, headHalfW:1255,
@@ -179,7 +179,7 @@ function drawHair(back){
 
   if(!detail){
     ctx.save();
-    ctx.beginPath();                                   // clip lumps to the hair mass
+    ctx.beginPath();
     pM(-1440,-560);
     pC(-1520,-1800,-980,A.hairTop,0,A.hairTop);
     pC(980,A.hairTop,1520,-1800,1440,-560);
@@ -187,8 +187,11 @@ function drawHair(back){
     pC(240,A.hairline-70,-240,A.hairline-70,-540,A.hairline+40);
     pC(-980,A.hairline-150,-1300,-980,-1440,-560);
     ctx.closePath(); ctx.clip();
-    for(let i=-4;i<=4;i++)
-      fCircle(i*330, A.hairTop+330+hash(i)*260, 330, i%2?P.hairMid:P.hair);
+    const hg=ctx.createLinearGradient(0,SY(A.hairTop),0,SY(A.hairline));
+    hg.addColorStop(0,P.hairMid); hg.addColorStop(0.45,P.hair); hg.addColorStop(1,P.hairDeep);
+    ctx.fillStyle=hg; ctx.fillRect(0,0,W,H);
+    fEll(-620,A.hairTop+560,540,420,-0.3,'rgba(80,64,52,0.30)');
+    fEll( 560,A.hairTop+700,460,380, 0.3,'rgba(80,64,52,0.22)');
     ctx.restore();
     return;
   }
@@ -279,7 +282,7 @@ function drawEyes(){
       pQ(ex-A.eyeRX*0.85, ey+openY*0.55, ex-A.eyeRX, ey+10);
       ctx.closePath(); fill(P.eyeW);
       const ix=ex+pose.eyeX*120, iy=ey+pose.eyeY*50;
-      const ir=Math.min(140, openY*1.35+52);
+      const ir=Math.min(openY*0.92, A.eyeRX*0.40);
       fCircle(ix, iy, ir, P.iris);
       fCircle(ix, iy, ir*0.70, P.irisLt);
       fCircle(ix, iy, ir*0.44, P.pupil);
@@ -311,20 +314,20 @@ function drawBrows(){
   for(const side of [-1,1]){
     const bx=side*A.eyeDX, by=A.brow-r;
     ctx.beginPath();
-    pM(bx-side*370, by+110);
-    pQ(bx-side*120, by-125, bx+side*300, by-40);
-    pQ(bx+side*360, by-5, bx+side*330, by+95);
-    pQ(bx-side*60, by+45, bx-side*370, by+185);
+    pM(bx-side*390, by+128);                       // inner (nose) end, slightly low
+    pQ(bx-side*150, by-108, bx+side*150, by-86);   // arch
+    pQ(bx+side*350, by-52, bx+side*372, by+34);    // tail
+    pQ(bx+side*140, by+26, bx-side*150, by+66);    // under-edge back to the inner end
+    pQ(bx-side*300, by+92, bx-side*390, by+128);
     ctx.closePath(); fill(P.hair);
     if(cam.zoom>0.25){
       for(let i=-5;i<=5;i++){
-        const t=i/5, hx=bx+side*t*330, hy=by+20-Math.abs(t)*40+(t<0?80:0);
-        fCircle(hx,hy,52+hash(i*3.1)*22, hash(i*2.2)>0.6?P.hairMid:P.hair);
+        const t=i/5, hx=bx+side*t*340, hy=by-54+Math.abs(t)*34+(t<-0.3?70:0);
+        fCircle(hx,hy,40+hash(i*3.1)*18, hash(i*2.2)>0.6?P.hairMid:P.hair);
       }
     }
   }
 }
-
 function drawNose(){
   const nb=A.noseBase;
   ctx.beginPath();
@@ -437,6 +440,7 @@ function drawHasaan(){
   fEll(-700,-520, 420, 300, 0, 'rgba(150,96,58,0.16)');
   fEll( 700,-520, 420, 300, 0, 'rgba(150,96,58,0.16)');
   ctx.restore();
+  drawSkinTexture();
   drawNose();
   drawMouth();
   drawBeard();
@@ -449,83 +453,171 @@ function drawHasaan(){
 }
 
 function drawFoam(){
-  const f=pose.foam;
-  for(let cx=-1150;cx<=1150;cx+=120){
+  const f=pose.foam, near=cam.zoom>0.45;
+  const stepX=near?150:120, stepY=near?140:110;
+  for(let cx=-1150;cx<=1150;cx+=stepX){
     const top=beardTop(cx);
-    for(let cy=top;cy<A.chin+40;cy+=110){
+    for(let cy=top;cy<A.chin+40;cy+=stepY){
       const n=Math.floor(cx*0.015+cy*0.02)*4.3;
-      if(hash(n+21)>f) continue;
+      if(hash(n+21)>f*0.55) continue;
       const ox=cx+hash(n)*80-40, oy=JY(cy)+hash(n+1)*70-35;
       if(Math.abs(ox)>A.jawHalfW+40) continue;
-      if(!onScreen(ox,oy,130)) continue;
-      fCircle(ox,oy,80+hash(n+6)*45,'rgba(250,248,244,0.93)');
-      fCircle(ox-25,oy-25,36+hash(n+8)*20,'#ffffff');
+      if(!onScreen(ox,oy,120)) continue;
+      const r=near?(26+hash(n+6)*16):(70+hash(n+6)*40);
+      fCircle(ox,oy,r,'rgba(250,248,244,0.80)');
+      fCircle(ox-r*0.3,oy-r*0.3,r*0.42,'rgba(255,255,255,0.9)');
     }
   }
 }
 function drawSweatBeads(){
-  for(let i=0;i<9;i++){
-    const bx=-900+hash(i*3.7)*1800, by=A.hairline+180+hash(i*5.1)*700;
+  const near=cam.zoom>0.45;
+  const count=near?16:9;
+  for(let i=0;i<count;i++){
+    const bx=-1050+hash(i*3.7)*2100, by=A.hairline+200+hash(i*5.1)*900;
     if(hash(i*2.3)>pose.sweat) continue;
-    if(!onScreen(bx,by,90)) continue;
-    fEll(bx,by,46,62,0,'rgba(190,225,245,0.82)');
-    fCircle(bx-14,by-18,16,'#ffffff');
+    if(!onScreen(bx,by,70)) continue;
+    const r=near?14:44;
+    ctx.fillStyle='rgba(176,214,235,0.72)';
+    ctx.beginPath();
+    ctx.moveTo(SX(bx),SY(by-r*1.5));
+    ctx.quadraticCurveTo(SX(bx+r*0.95),SY(by+r*0.35),SX(bx),SY(by+r*1.15));
+    ctx.quadraticCurveTo(SX(bx-r*0.95),SY(by+r*0.35),SX(bx),SY(by-r*1.5));
+    ctx.fill();
+    fCircle(bx-r*0.3,by-r*0.25,r*0.26,'rgba(255,255,255,0.85)');
   }
+}
+
+/* close-up skin: pores and faint creases so the surface is never a flat field */
+function drawSkinTexture(){
+  if(cam.zoom<0.42) return;
+  ctx.save(); headPath(0); ctx.clip();
+  const sp=46;
+  const x0=cam.x-W/2/cam.zoom-sp, x1=cam.x+W/2/cam.zoom+sp;
+  const y0=cam.y-H/2/cam.zoom-sp, y1=cam.y+H/2/cam.zoom+sp;
+  for(let y=Math.floor(y0/sp)*sp; y<y1; y+=sp){
+    for(let x=Math.floor(x0/sp)*sp; x<x1; x+=sp){
+      const n=Math.floor(x*0.41+y*0.67)*3.1;
+      const h1=hash(n);
+      const px2=x+hash(n+1)*sp, py2=y+hash(n+2)*sp;
+      if(h1>0.80) fEll(px2,py2,7,5,0,'rgba(150,96,58,0.22)');
+      else if(h1>0.62) fEll(px2,py2,5,4,0,'rgba(255,224,190,0.30)');
+      else if(h1>0.55) fEll(px2,py2,4,3,0,'rgba(120,72,42,0.14)');
+      if(hash(n+9)>0.95){                       // the odd stray stubble
+        fEll(px2,py2,3,9,hash(n+4)*1.2,'rgba(50,38,30,0.35)');
+      }
+    }
+  }
+  ctx.restore();
 }
 
 /* --------------------------- props: the roll paratha ---------------------- */
 /* vertical roll, axis x=0, bitten at the top */
-const ROLL={x:0, top:1250, bottom:5500, r:300};
+const ROLL={x:0, top:1250, bottom:5400, r:240};
 let biteCount=0;
 
 function drawRoll(){
-  const detail=cam.zoom>0.2;
-  const top=ROLL.top + biteCount*0;
-  // body
-  fRect(-ROLL.r, top, ROLL.r*2, ROLL.bottom-top, P.par);
-  fRect(-ROLL.r, top, 90, ROLL.bottom-top, P.parDk);
-  fRect(ROLL.r-90, top, 90, ROLL.bottom-top, P.parDk);
-  fRect(-ROLL.r+90, top, 70, ROLL.bottom-top, P.parLt);
-  // the wrap spiral + char marks
-  const step=detail?120:420;
-  for(let y=top; y<ROLL.bottom; y+=step){
+  const r=ROLL.r, top=ROLL.top+biteCount*120, bot=ROLL.bottom;
+  const near=cam.zoom>0.45;      // climbing distance
+  const mid =cam.zoom>0.18;
+
+  // cylinder body
+  const g=ctx.createLinearGradient(SX(-r),0,SX(r),0);
+  g.addColorStop(0,P.parDeep); g.addColorStop(0.14,P.parDk);
+  g.addColorStop(0.38,P.parLt); g.addColorStop(0.58,P.par);
+  g.addColorStop(0.84,P.parDk); g.addColorStop(1,P.parDeep);
+  ctx.fillStyle=g;
+  ctx.fillRect(SX(-r),SY(top),Math.max(1,SS(r*2)),Math.max(1,SS(bot-top)));
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(SX(-r),SY(top),Math.max(1,SS(r*2)),Math.max(1,SS(bot-top)));
+  ctx.clip();
+
+  // the spiral seam of the rolled flatbread
+  const step = near?110:(mid?260:620);
+  const y0=Math.max(top-step, cam.y-H/2/cam.zoom-step);
+  const y1=Math.min(bot, cam.y+H/2/cam.zoom+step);
+  for(let y=Math.floor(y0/step)*step; y<y1; y+=step){
     const n=Math.floor(y/step);
-    fRect(-ROLL.r, y, ROLL.r*2, 16, P.parDk);
-    fRect(-ROLL.r, y+16, ROLL.r*2, 8, P.parDeep);
-    if(hash(n)>0.62) fEll(-120+hash(n*2)*280, y+58, 70+hash(n)*40, 34, 0, P.parChar);
-    if(hash(n+5)>0.78) fEll(-180+hash(n*3)*340, y+90, 46, 24, 0, P.parChar);
-    if(detail && hash(n+11)>0.7){                   // filling peeking out
-      fEll(-ROLL.r+40, y+70, 44, 30, 0, hash(n)>0.5?P.fillG:P.fillR);
-      fEll(ROLL.r-40, y+40, 40, 26, 0, hash(n+1)>0.5?P.fillR:P.fillG);
+    ctx.beginPath();
+    pM(-r, y); pQ(0, y+step*0.34, r, y+step*0.06);
+    pL(r, y+step*0.06+Math.max(8,step*0.10));
+    pQ(0, y+step*0.34+Math.max(8,step*0.10), -r, y+Math.max(8,step*0.10));
+    ctx.closePath(); fill('rgba(138,84,32,0.50)');
+    if(hash(n)>0.5) fEll(-140+hash(n*2)*280, y+step*0.22, 40+hash(n)*34, 17, 0, P.parChar);
+    if(hash(n+7)>0.7) fEll(-110+hash(n*3)*230, y+step*0.55, 26, 12, 0, P.parChar);
+  }
+  // fine crumb / flake speckle once you are close
+  if(near){
+    const sp=26;
+    for(let y=Math.floor(y0/sp)*sp; y<y1; y+=sp){
+      for(let x=-r; x<r; x+=sp){
+        const n=Math.floor(x*0.37+y*0.61)*2.7;
+        const h1=hash(n);
+        if(h1>0.78) fRect(x+hash(n+1)*sp, y+hash(n+2)*sp, 5, 4, P.parLt);
+        else if(h1>0.62) fRect(x+hash(n+3)*sp, y+hash(n+4)*sp, 4, 3, P.parDk);
+        else if(h1>0.57) fRect(x+hash(n+5)*sp, y+hash(n+6)*sp, 3, 3, P.parChar);
+      }
+    }
+    // oil sheen running down the lit side
+    const og=ctx.createLinearGradient(SX(-r*0.45),0,SX(r*0.1),0);
+    og.addColorStop(0,'rgba(255,230,180,0)');
+    og.addColorStop(0.5,'rgba(255,232,186,0.18)');
+    og.addColorStop(1,'rgba(255,230,180,0)');
+    ctx.fillStyle=og; ctx.fillRect(0,0,W,H);
+  }
+  ctx.restore();
+
+  // foil wrapper: only the very bottom of the roll
+  const foilTop=bot-330;
+  if(cam.y+H/2/cam.zoom > foilTop){
+    const fg=ctx.createLinearGradient(SX(-r-12),0,SX(r+12),0);
+    fg.addColorStop(0,'#79818d'); fg.addColorStop(0.32,'#e8ecf2');
+    fg.addColorStop(0.58,'#c3cad5'); fg.addColorStop(1,'#6f7783');
+    ctx.fillStyle=fg;
+    ctx.fillRect(SX(-r-12),SY(foilTop),Math.max(1,SS(r*2+24)),Math.max(1,SS(bot-foilTop+40)));
+    for(let i=-r;i<r;i+=52) fRect(i,foilTop,6,bot-foilTop+40,'rgba(255,255,255,0.30)');
+    for(let i=-r-12;i<r+12;i+=46) fEll(i+23,foilTop,28,16,0,P.par);   // torn edge
+    if(near){                                   // APImatic sticker (easter egg)
+      fRect(-86, foilTop+120, 172, 74, '#1f6fd0');
+      fRect(-86, foilTop+120, 172, 10, '#4a95ea');
+      ctx.fillStyle='#ffffff';
+      ctx.font=Math.max(5,Math.round(SS(38)))+'px monospace';
+      ctx.textAlign='center';
+      ctx.fillText('APImatic', SX(0), SY(foilTop+172));
+      ctx.textAlign='left';
     }
   }
-  // bitten top: crescent chunks removed
-  fEll(0, top+40, ROLL.r, 90, 0, P.parLt);
-  for(let i=0;i<=biteCount;i++){
-    const bx=-160+i*150;
-    fEll(bx, top+10, 150, 110, 0, P.bgLt||P.bg);
+
+  // bitten top: a ragged crescent edge with the filling exposed
+  fEll(0, top+26, r, 74, 0, P.parLt);
+  fEll(0, top+26, r*0.7, 48, 0, P.sauce);
+  fEll(-56, top+30, 96, 36, 0, P.fillG);
+  fEll(78, top+44, 78, 30, 0, P.fillR);
+  if(biteCount>0){
+    for(let i=-r;i<r;i+=46){
+      const d=22+hash(i*0.3+biteCount)*26;
+      fEll(i+23, top+6-d*0.3, 26, d, 0, P.parDk);
+      fEll(i+23, top-2-d*0.3, 20, d*0.7, 0, P.parLt);
+    }
   }
-  // exposed filling at the bite
-  fEll(-60, top+95, 150, 60, 0, P.fillG);
-  fEll(110, top+120, 120, 50, 0, P.fillR);
-  fEll(10, top+150, 180, 50, 0, P.sauce);
 }
 
 /* his hand gripping the roll (also a landmark ledge in stage 1) */
 const HAND={y:3250};
 function drawHand(){
   const y=HAND.y;
-  fRect(-ROLL.r-250, y, ROLL.r*2+500, 620, P.skin);
-  fEll(0, y, ROLL.r+250, 90, 0, P.skinLt);
+  fRect(-ROLL.r-210, y, ROLL.r*2+420, 620, P.skin);
+  fEll(0, y, ROLL.r+210, 90, 0, P.skinLt);
   for(let i=0;i<4;i++){
     const fy=y+70+i*135;
-    fRect(-ROLL.r-250, fy, ROLL.r*2+500, 118, P.skin);
-    fRect(-ROLL.r-250, fy+104, ROLL.r*2+500, 22, P.skinSh);
-    fEll(ROLL.r+230, fy+56, 70, 56, 0, P.skinLt);
-    fEll(-ROLL.r-230, fy+56, 70, 56, 0, P.skinDk);
+    fRect(-ROLL.r-210, fy, ROLL.r*2+420, 118, P.skin);
+    fRect(-ROLL.r-210, fy+104, ROLL.r*2+420, 22, P.skinSh);
+    fEll(ROLL.r+190, fy+56, 70, 56, 0, P.skinLt);
+    fEll(-ROLL.r-190, fy+56, 70, 56, 0, P.skinDk);
   }
-  fRect(-ROLL.r-250, y+620, ROLL.r*2+500, 240, P.sweater);
-  for(let i=-ROLL.r-250;i<ROLL.r+250;i+=120) fRect(i, y+620, 40, 240, P.sweaterSh);
+  fRect(-ROLL.r-210, y+620, ROLL.r*2+420, 240, P.sweater);
+  for(let i=-ROLL.r-210;i<ROLL.r+210;i+=120) fRect(i, y+620, 40, 240, P.sweaterSh);
 }
 
 /* razor (stage 2) */
@@ -632,13 +724,13 @@ function sfx(f,d,type,v,slide){
    =========================================================================== */
 const GRAV=1150, MAXFALL=520, RUN=118, JUMP=-392, JUMP_MIN=-340;
 const COYOTE=0.1, BUFFER=0.12;
-const DASH_SPD=320, DASH_TIME=0.17;
+const DASH_SPD=430, DASH_TIME=0.20;
 
 const player={
   x:0,y:0,w:11,h:17,vx:0,vy:0,
   onGround:false, face:1, st:'idle', animT:0, fr:1,
   coyote:0, buf:0, invuln:0, hearts:3,
-  dash:0, dashT:0, dashVX:0, dashVY:0, dashCool:0,
+  dashT:0, dashVX:0, dashVY:0, dashLeft:1, jump2Left:0,
   grabbing:false, stamina:1,
   safe:{x:0,y:0}, dead:false
 };
@@ -670,8 +762,10 @@ function tryLand(prevBottom){
   }
   return null;
 }
+let wasAir=false;
 function onLand(p){
   if(p.type==='crumble' && p.timer===undefined) p.timer=0.5;
+  if(wasAir && player.vy>120) sfx(150,.05,'square',.03,0.7);
 }
 
 /* ===========================================================================
@@ -679,78 +773,203 @@ function onLand(p){
    grease (low friction) + flakes that crumble a beat after you land
    =========================================================================== */
 const STAGES=[
-  {name:'THE ROLL PARATHA', sub:'stage one',
-   zoom:1.0, bounds:{x0:-430,x1:430,y0:1200,y1:5600},
-   start:{x:-30,y:5320}, finish:1420},
-  {name:'THE BEARD', sub:'stage two',
-   zoom:1.0, bounds:{x0:-1250,x1:1250,y0:-400,y1:2400},
-   start:{x:-60,y:2240}, finish:-200},
-  {name:'THE FOREHEAD', sub:'stage three',
-   zoom:1.0, bounds:{x0:-1300,x1:1300,y0:-2700,y1:-200},
-   start:{x:0,y:-340}, finish:-2450}
+  {name:'THE ROLL PARATHA', sub:'stage one', ability:'none',
+   zoom:1.0, bounds:{x0:-250,x1:250,y0:1180,y1:5450},
+   start:{x:-30,y:4930}, finish:1430,
+   tip:'the flakes crumble - keep moving'},
+  {name:'THE BEARD', sub:'stage two', ability:'grab',
+   zoom:1.0, bounds:{x0:-1180,x1:1180,y0:-300,y1:2120},
+   start:{x:-40,y:1900}, finish:-220,
+   tip:'X grips the hair - stamina drains, and the razor is coming'},
+  {name:'THE FOREHEAD', sub:'stage three', ability:'dash',
+   zoom:1.0, bounds:{x0:-1240,x1:1240,y0:-2620,y1:-540},
+   start:{x:0,y:-660}, finish:-2460,
+   tip:'X to dash - the ridges rise when he raises his brows'}
 ];
 
+/* collectibles: basketball (double jump), codering laptop (slow), APImatic badge (heal) */
+let powerups=[], buffs={jump2:0, slow:0}, collected={ball:0,laptop:0,badge:0};
+let hairWalls=[], browPhase=0, browVal=0;
+let razor=null, razorWarn=0, razorTimer=6;
+let idleT=0, eggMsg='', eggMsgT=0;
+let cutRazor=null;   // the razor as a cutscene prop
+
 function buildStage1(){
-  platforms=[]; hazards=[]; parts=[];
   const S=STAGES[0];
-  // the bottom end of the roll
-  platforms.push({x:-ROLL.r,y:5380,w:ROLL.r*2,h:40,type:'roll'});
-  let y=5380, px=0;
+  platforms.push({x:-ROLL.r,y:5010,w:ROLL.r*2,h:40,type:'roll'});
+  let y=5010, px=0;
   while(y>S.finish+60){
     y -= rnd(42,50);
     const w=rnd(62,120);
-    let nx=clamp(px+rnd(-120,120), -ROLL.r-60, ROLL.r-w+60);
+    let nx=clamp(px+rnd(-110,110), -ROLL.r+10, ROLL.r-w-10);
     px=nx+w/2;
-    // flakes near the hand become solid finger ledges
     let type='flake';
     const r=Math.random();
-    if(r<0.30) type='crumble';
-    else if(r<0.42) type='grease';
+    if(r<0.30) type='crumble'; else if(r<0.42) type='grease';
     platforms.push({x:nx,y:y,w:w,h:12,type:type});
     if(Math.random()<0.22){
       const w2=rnd(50,80);
-      const x2=(nx<0)?rnd(40,ROLL.r-w2+40):rnd(-ROLL.r-40,-60);
+      const x2=(nx<0)?rnd(30,ROLL.r-w2-10):rnd(-ROLL.r+10,-70);
       platforms.push({x:x2,y:y-rnd(8,20),w:w2,h:12,type:Math.random()<0.3?'crumble':'flake'});
     }
   }
-  // his fingers: wide safe ledges mid-climb
   for(let i=0;i<4;i++){
     const fy=HAND.y+70+i*135;
-    platforms.push({x:-ROLL.r-250,y:fy,w:ROLL.r*2+500,h:26,type:'finger'});
+    platforms.push({x:-ROLL.r-210,y:fy,w:ROLL.r*2+420,h:26,type:'finger'});
   }
-  platforms.sort((a,b)=>b.y-a.y);
+  powerups.push({x:120,y:4250,type:'ball'});
+  powerups.push({x:-150,y:2600,type:'laptop'});
+  powerups.push({x:60,y:1750,type:'badge'});
+}
+
+/* ---- STAGE 2: the beard. tufts to stand on, hair walls to grip ---- */
+function buildStage2(){
+  const S=STAGES[1];
+  platforms.push({x:-340,y:1960,w:680,h:40,type:'chin'});
+  let y=1960, px=0;
+  while(y>S.finish+70){
+    y -= rnd(46,56);
+    // the beard narrows as it climbs toward the sideburns
+    const t=clamp((1960-y)/2200,0,1);
+    const half=lerp(1050, 700, t);
+    const w=rnd(70,130);
+    let nx=clamp(px+rnd(-150,150), -half, half-w);
+    px=nx+w/2;
+    if(Math.random()<0.74){
+      platforms.push({x:nx,y:y,w:w,h:13,type:'tuft'});
+    } else {
+      // a gap you cross by gripping a hair wall
+      const wallX = nx + (Math.random()<0.5?-70:70);
+      const wall={x:clamp(wallX,-half,half-30), y:y-170, w:30, h:250, type:'hairwall', shorn:0};
+      platforms.push(wall); hairWalls.push(wall);
+    }
+    if(Math.random()<0.18){
+      const w2=rnd(54,86);
+      const x2=(nx<0)?rnd(60,half-w2):rnd(-half,-120);
+      platforms.push({x:x2,y:y-rnd(10,24),w:w2,h:13,type:'tuft'});
+    }
+  }
+  // a run of hair walls near the jawline where tufts are sparse
+  for(let i=0;i<5;i++){
+    const wy=1500-i*230, wx=(i%2?1:-1)*rnd(260,520);
+    const wall={x:wx,y:wy,w:30,h:260,type:'hairwall',shorn:0};
+    platforms.push(wall); hairWalls.push(wall);
+  }
+  powerups.push({x:-420,y:1500,type:'ball'});
+  powerups.push({x:380,y:700,type:'laptop'});
+  powerups.push({x:-120,y:60,type:'badge'});
+}
+
+/* ---- STAGE 3: the forehead. dash gaps + ridges driven by his brows ---- */
+function buildStage3(){
+  const S=STAGES[2];
+  platforms.push({x:-420,y:-600,w:840,h:40,type:'brow'});
+  let y=-640, px=0, n=0;
+  while(y>S.finish+80){
+    y -= rnd(52,62);
+    const w=rnd(92,170);
+    const wide=Math.random()<0.34;                     // a gap that needs the dash
+    let nx=clamp(px+(wide?rnd(150,230)*(Math.random()<0.5?-1:1):rnd(-120,120)), -1180, 1180-w);
+    px=nx+w/2;
+    const moving=Math.random()<0.38;
+    platforms.push({
+      x:nx, y:y, w:w, h:14, type:'wrinkle',
+      baseY:y, amp: moving?rnd(26,46):0, phase: rnd(0,6.28),
+      appear: Math.random()<0.18                        // only solid while his brows are up
+    });
+    n++;
+  }
+  // the summit, up in the hair
+  platforms.push({x:-170,y:S.finish-30,w:340,h:30,type:'summit'});
+  powerups.push({x:520,y:-1000,type:'ball'});
+  powerups.push({x:-560,y:-1600,type:'laptop'});
+  powerups.push({x:180,y:-2150,type:'badge'});
 }
 
 function drawPlatform(p){
-  if(!onScreen(p.x+p.w/2,p.y,p.w)) return;
-  if(p.gone) return;
-  const shake=(p.type==='crumble'&&p.timer!==undefined)?Math.sin(perfNow*0.06)*6:0;
-  const x=p.x+shake;
+  if(p.gone || !onScreen(p.x+p.w/2,p.y,p.w)) return;
+  const shake=(p.type==='crumble'&&p.timer!==undefined)?Math.sin(perfNow*0.055)*5:0;
+  const x=p.x+shake, y=p.y, w=p.w, h=p.h;
+  const near=cam.zoom>0.45;
   switch(p.type){
     case 'roll':
-      fRect(x,p.y,p.w,p.h,P.parDk); fRect(x,p.y,p.w,10,P.parLt); break;
-    case 'flake':
-      fRect(x,p.y,p.w,p.h,P.par);
-      fRect(x,p.y,p.w,5,P.parLt);
-      fRect(x,p.y+p.h-4,p.w,4,P.parChar);
-      fRect(x-6,p.y+2,8,8,P.parDk); fRect(x+p.w-2,p.y+2,8,8,P.parDk);
-      break;
-    case 'grease':
-      fRect(x,p.y,p.w,p.h,P.parLt);
-      fRect(x,p.y,p.w,4,'#ffe9b8');
-      fRect(x,p.y+p.h-3,p.w,3,P.parDk);
-      for(let i=4;i<p.w-4;i+=14) fEll(x+i,p.y+3,5,2.5,0,'rgba(255,255,255,0.75)');
-      break;
-    case 'crumble':
-      fRect(x,p.y,p.w,p.h,P.parDk);
-      fRect(x,p.y,p.w,4,P.par);
-      for(let i=3;i<p.w-3;i+=9) fRect(x+i,p.y+5,4,p.h-6,P.parChar);
-      break;
-    case 'finger':
-      fRect(x,p.y,p.w,p.h,P.skin);
-      fRect(x,p.y,p.w,6,P.skinLt);
-      fRect(x,p.y+p.h-6,p.w,6,P.skinSh);
-      break;
+      fRect(x,y,w,h,P.parDk); fRect(x,y,w,6,P.parLt); break;
+    case 'flake': {
+      fRect(x,y+2,w,h,P.parDk);                     // underside
+      fRect(x,y,w,5,P.parLt);                       // lit top edge
+      fRect(x+2,y+5,w-4,h-6,P.par);
+      if(near){
+        for(let i=3;i<w-3;i+=11) fRect(x+i,y+5,5,h-7,'rgba(160,98,40,0.35)');  // striations
+        for(let i=5;i<w-5;i+=17) if(hash(x+i)>0.6) fRect(x+i,y+1,5,3,P.parChar);
+      }
+      fEll(x+2,y+4,7,6,0,P.par);                    // curled ends
+      fEll(x+w-2,y+4,7,6,0,P.par);
+      break; }
+    case 'grease': {
+      fRect(x,y+2,w,h,P.parDk);
+      fRect(x,y,w,5,'#ffe9b8');
+      fRect(x+2,y+5,w-4,h-6,P.parLt);
+      for(let i=4;i<w-4;i+=13) fEll(x+i,y+3,5,2.4,0,'rgba(255,255,255,0.85)');
+      if(near) for(let i=8;i<w-8;i+=21) fEll(x+i,y+h,4,3,0,'rgba(226,170,90,0.75)'); // drips
+      break; }
+    case 'crumble': {
+      fRect(x,y+2,w,h,P.parChar);
+      fRect(x,y,w,4,P.par);
+      for(let i=2;i<w-2;i+=8) fRect(x+i,y+4,4,h-5,hash(x+i)>0.5?P.parDk:P.parDeep);
+      if(p.timer!==undefined && Math.floor(perfNow*0.012)%2===0) fRect(x,y,w,3,'#ffd27a');
+      break; }
+    case 'chin': {
+      fRect(x,y,w,h,P.hairDeep);
+      for(let i=0;i<w;i+=26) fCircle(x+i+13,y+8,15,hash(x+i)>0.5?P.hair:P.hairMid);
+      fRect(x,y,w,4,P.hairHi);
+      break; }
+    case 'tuft': {
+      for(let i=0;i<w;i+=17) fCircle(x+i+9,y+10,12,hash(x*0.3+i)>0.5?P.hair:P.hairMid);
+      fRect(x-2,y+1,w+4,5,'#6b5747');
+      fRect(x,y,w,4,'#9c8168');                      // lit top edge: this is the ledge
+      if(near) for(let i=4;i<w-4;i+=21) fCircle(x+i,y+1,4,'#b89a7c');
+      break; }
+    case 'hairwall': {
+      // a grabbable rope of beard hair - marked so you can read it as climbable
+      fRect(x-3,y,w+6,h,'#5e4c3e');
+      fRect(x,y,w,h,P.hairDeep);
+      for(let i=0;i<h;i+=20) fCircle(x+w/2+(hash(y+i)>0.5?5:-5), y+i+10, 13, hash(y*0.2+i)>0.5?P.hair:P.hairMid);
+      fRect(x+2,y,4,h,'#a68a6c');
+      for(let i=10;i<h;i+=26) fCircle(x+w/2, y+i, 5, '#c7ad8c');
+      break; }
+    case 'brow': {
+      fRect(x,y,w,h,P.hairDeep);
+      for(let i=0;i<w;i+=22) fCircle(x+i+11,y+7,14,hash(x+i)>0.55?P.hair:P.hairMid);
+      fRect(x,y,w,5,P.hairHi);
+      break; }
+    case 'wrinkle': {
+      const a=p.appear?0.55+browVal*0.45:1;
+      ctx.globalAlpha=a;
+      fRect(x,y+3,w,h,P.skinSh);
+      fRect(x,y,w,5,P.skinHi);
+      fRect(x,y+5,w,h-5,P.skinLt);
+      if(near){
+        for(let i=6;i<w-6;i+=19) fEll(x+i,y+2,7,2,0,'rgba(255,230,200,0.6)');
+        fRect(x,y+h,w,3,'rgba(120,72,42,0.35)');
+      }
+      if(p.appear){ fRect(x,y-4,w,2,browVal>0.42?'#ffd95e':'rgba(255,217,94,0.3)'); }
+      ctx.globalAlpha=1;
+      break; }
+    case 'summit': {
+      fRect(x,y,w,h,P.hairHi);
+      for(let i=0;i<w;i+=20) fCircle(x+i+10,y+4,13,hash(x+i)>0.5?P.hairMid:P.hair);
+      fRect(x+w/2-2,y-70,4,70,'#d9d9e8');
+      ctx.fillStyle='#ffd95e';
+      ctx.beginPath();
+      ctx.moveTo(SX(x+w/2+2),SY(y-70)); ctx.lineTo(SX(x+w/2+54),SY(y-54)); ctx.lineTo(SX(x+w/2+2),SY(y-36));
+      ctx.closePath(); ctx.fill();
+      break; }
+    case 'finger': {
+      fRect(x,y,w,h,P.skin);
+      fRect(x,y,w,6,P.skinLt);
+      fRect(x,y+h-7,w,7,P.skinSh);
+      if(near) for(let i=0;i<w;i+=34) fEll(x+i,y+3,13,4,0,'rgba(255,220,186,0.5)');
+      break; }
   }
 }
 
@@ -792,6 +1011,7 @@ function updateCutscene(dt){
 
   if(cutStage===0){
     /* --- he raises the roll, bites, chews; camera dives into the roll --- */
+    cutRazor=null;
     pose.eyeY = t<2 ? 0.3 : 0.1;
     if(t>1.6 && t<2.6){ pose.jaw=ease(clamp((t-1.6)/0.9,0,1))*0.9; pose.brow=0.3; }
     if(t>=2.6 && t<2.9){ pose.jaw=lerp(0.9,0.15,(t-2.6)/0.3); if(biteCount<1) biteCount=1; }
@@ -812,6 +1032,12 @@ function updateCutscene(dt){
     pose.brow = 0.2;
     pose.foam = clamp((t-0.6)/1.2,0,1)*0.85;
     pose.eyeY = 0.15;
+    cutRazor=null;
+    if(t>1.9 && t<5.2){
+      const u=clamp((t-1.9)/2.6,0,1);
+      cutRazor={x:-880+Math.sin(u*3.1)*70, y:lerp(-40,1450,ease(u)), ang:0.26, s:1.7};
+      if(u>0.08) pose.beardCut=Math.min(0.5,(u-0.08)*0.75);
+    }
     camTrack([
       {t:0,  x:0,   y:-260, z:0.062},
       {t:1.6,x:-200,y:500,  z:0.10},
@@ -822,6 +1048,7 @@ function updateCutscene(dt){
   }
   if(cutStage===2){
     /* --- brows up, sweat beads, camera climbs to the forehead --- */
+    cutRazor=null;
     pose.brow = ease(clamp((t-1.2)/1.1,0,1));
     pose.sweat = clamp((t-2.2)/1.5,0,1);
     pose.eyeY = -0.25;
@@ -838,18 +1065,23 @@ function updateCutscene(dt){
 }
 
 function startCutscene(s){
-  stage=s; cutStage=s; cutT=0; state='cut';
-  if(s===0) biteCount=0;
+  stage=s; cutStage=s; cutT=0; state='cut'; cutRazor=null;
+  if(s===0){ biteCount=0; collected={ball:0,laptop:0,badge:0}; }
   pose.foam=0; pose.sweat=0; pose.beardCut=0;
 }
 
-function startPlay(s){
-  stage=s; state='play';
-  const S=STAGES[s];
-  if(s===0) buildStage1();
+function startPlay(st){
+  stage=st; state='play';
+  const S=STAGES[st];
+  platforms=[]; hazards=[]; parts=[]; powerups=[]; hairWalls=[];
+  razor=null; razorWarn=0; razorTimer=5.5;
+  buffs.jump2=0; buffs.slow=0;
+  if(st===0) buildStage1(); else if(st===1) buildStage2(); else buildStage3();
+  platforms.sort((a,b)=>b.y-a.y);
   player.x=S.start.x; player.y=S.start.y;
   player.vx=0; player.vy=0; player.hearts=3; player.invuln=1;
-  player.dash=1; player.stamina=1; player.dead=false;
+  player.dashLeft=1; player.dashT=0; player.jump2Left=0;
+  player.stamina=1; player.grabbing=false; player.dead=false;
   player.safe={x:player.x,y:player.y};
   cam.zoom=S.zoom;
   cam.x=player.x; cam.y=player.y-60;
