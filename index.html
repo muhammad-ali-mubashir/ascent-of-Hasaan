@@ -228,15 +228,15 @@ function beardTop(x){
 }
 function beardPath(){
   ctx.beginPath();
-  pM(-1245, 130);                                     // left sideburn
-  pC(-1215, 560, -1050, 830, -700, 1010);             // down the cheek
-  pC(-560, 1080, -500, 1120, -470, JY(A.lipY+140));   // to the mouth corner
-  pQ(0, JY(A.lipY+330), 470, JY(A.lipY+140));         // under the lower lip
-  pC(500, 1120, 560, 1080, 700, 1010);
-  pC(1050, 830, 1215, 560, 1245, 130);                // right sideburn
-  pC(1270, 700, 1215, JY(1420), 900, JY(1760));       // outer jaw (fluffier than the skin)
-  pC(520, JY(A.chin+170), -520, JY(A.chin+170), -900, JY(1760));
-  pC(-1215, JY(1420), -1270, 700, -1245, 130);
+  pM(-1120, 420);                                     // left sideburn, lower on the cheek
+  pC(-1080, 760, -960, 940, -650, 1060);              // down the cheek
+  pC(-540, 1082, -486, 1120, -455, JY(A.lipY+150));   // to the mouth corner
+  pQ(0, JY(A.lipY+350), 455, JY(A.lipY+150));         // under the lower lip
+  pC(486, 1120, 540, 1082, 660, 1020);
+  pC(960, 940, 1080, 760, 1120, 420);                 // right sideburn
+  pC(1150, 860, 1095, JY(1520), 830, JY(1830));       // outer jaw, fluffier than the skin
+  pC(480, JY(A.chin+150), -480, JY(A.chin+150), -830, JY(1830));
+  pC(-1095, JY(1520), -1150, 860, -1120, 420);
   ctx.closePath();
 }
 function drawBeard(){
@@ -260,15 +260,15 @@ function drawBeard(){
   // moustache sits above the lip, separate from the beard mass
   if(cut<0.9){
     ctx.beginPath();
-    pM(-430, JY(A.lipY-60));
-    pC(-390, A.lipY-300, -140, A.lipY-250, 0, A.lipY-210);
-    pC(140, A.lipY-250, 390, A.lipY-300, 430, JY(A.lipY-60));
-    pQ(0, A.lipY-110, -430, JY(A.lipY-60));
+    pM(-400, JY(A.lipY-70));
+    pC(-350, A.lipY-250, -130, A.lipY-212, 0, A.lipY-186);
+    pC(130, A.lipY-212, 350, A.lipY-250, 400, JY(A.lipY-70));
+    pQ(0, A.lipY-120, -400, JY(A.lipY-70));
     ctx.closePath(); fill(P.hairDeep);
     if(detail) for(let mx=-400; mx<=400; mx+=58){
       const n=Math.floor(mx*0.03)*3.7;
       if(hash(n+40)<cut*0.8) continue;
-      fCircle(mx, A.lipY-195+Math.abs(mx)*0.10, 54+hash(n)*20, hash(n+2)>0.62?P.hairMid:P.hair);
+      fCircle(mx, A.lipY-176+Math.abs(mx)*0.09, 44+hash(n)*16, hash(n+2)>0.62?P.hairMid:P.hair);
     }
   }
 }
@@ -287,7 +287,7 @@ function drawEyes(){
       pQ(ex-A.eyeRX*0.85, ey+openY*0.55, ex-A.eyeRX, ey+10);
       ctx.closePath(); fill(P.eyeW);
       const ix=ex+pose.eyeX*120, iy=ey+pose.eyeY*50;
-      const ir=Math.min(openY*0.92, A.eyeRX*0.40);
+      const ir=Math.min(openY*1.02, A.eyeRX*0.42);
       fCircle(ix, iy, ir, P.iris);
       fCircle(ix, iy, ir*0.70, P.irisLt);
       fCircle(ix, iy, ir*0.44, P.pupil);
@@ -300,7 +300,7 @@ function drawEyes(){
       pQ(ex+A.eyeRX*0.45, ey+openY*1.15, ex-A.eyeRX*0.3, ey+openY*1.0);
       pQ(ex-A.eyeRX*0.85, ey+openY*0.55, ex-A.eyeRX, ey+10);
       ctx.closePath(); ctx.clip();
-      fEll(ex, ey-openY*1.25, A.eyeRX, openY*0.8, 0, 'rgba(60,34,18,0.30)');
+      fEll(ex, ey-openY*1.26, A.eyeRX, openY*0.82, 0, 'rgba(58,33,17,0.30)');
       ctx.restore();
     }
     // upper lid / lash line: a thin dark arc, not a slab
@@ -319,11 +319,11 @@ function drawBrows(){
   for(const side of [-1,1]){
     const bx=side*A.eyeDX, by=A.brow-r;
     ctx.beginPath();
-    pM(bx-side*390, by+128);                       // inner (nose) end, slightly low
-    pQ(bx-side*150, by-108, bx+side*150, by-86);   // arch
-    pQ(bx+side*350, by-52, bx+side*372, by+34);    // tail
-    pQ(bx+side*140, by+26, bx-side*150, by+66);    // under-edge back to the inner end
-    pQ(bx-side*300, by+92, bx-side*390, by+128);
+    pM(bx-side*380, by+96);                        // inner (nose) end
+    pQ(bx-side*140, by-120, bx+side*160, by-104);  // thick, shallow arch
+    pQ(bx+side*340, by-74, bx+side*366, by+22);    // tail
+    pQ(bx+side*150, by-4, bx-side*140, by+40);     // under-edge
+    pQ(bx-side*300, by+62, bx-side*380, by+96);
     ctx.closePath(); fill(P.hair);
     if(cam.zoom>0.25){
       for(let i=-5;i<=5;i++){
@@ -880,7 +880,7 @@ function buildStage3(){
   let prev={x:-420,y:-600,w:840};
   platforms.push({x:prev.x,y:prev.y,w:prev.w,h:40,type:'brow'});
   let y=-600;
-  while(y>S.finish+90){
+  while(y>S.finish+300){
     y -= rnd(42,50);
     const w=rnd(96,168);
     const dashGap=Math.random()<0.30;
@@ -892,20 +892,22 @@ function buildStage3(){
               appear: Math.random()<0.16};
     platforms.push(pl); prev=pl;
   }
-  // staircase up to the summit, each step inside jump range, ending under the flag
+  // staircase to the summit: walk toward it on both axes, never more than
+  // one jump per step, so the last ledge is always makeable
   const sumX=-170, sumW=340, sumY=S.finish+14;
-  let step=prev;
-  while(step.y - 46 > sumY + 52){
-    const w=rnd(90,130);
-    const sy=step.y-44;
-    // walk horizontally toward the summit, but never further than one jump
-    const want=clamp(sumX+sumW/2-w/2, step.x-w-50, step.x+step.w+50);
+  const sumCx=sumX+sumW/2;
+  let step=prev, guard=0;
+  while(guard++ < 60){
+    const dx=Math.abs((step.x+step.w/2)-sumCx);
+    const dy=step.y-sumY;
+    if(dx<140 && dy<=52) break;
+    const w=rnd(96,134);
+    const sy=Math.max(sumY+44, step.y-44);
+    const want=clamp(sumCx-w/2, step.x-w-50, step.x+step.w+50);
     const nx=clamp(want,-1180,1180-w);
     const pl={x:nx,y:sy,w:w,h:14,type:'wrinkle',baseY:sy,amp:0,phase:0,appear:false};
     platforms.push(pl); step=pl;
   }
-  // final landing right below the summit
-  platforms.push({x:sumX+60,y:sumY+48,w:220,h:14,type:'wrinkle',baseY:sumY+48,amp:0,phase:0,appear:false});
   platforms.push({x:sumX,y:sumY,w:sumW,h:30,type:'summit'});
   powerups.push({x:520,y:-1000,type:'ball'});
   powerups.push({x:-560,y:-1600,type:'laptop'});
