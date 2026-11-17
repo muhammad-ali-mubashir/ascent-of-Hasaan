@@ -645,3 +645,521 @@ const player={
 
 let platforms=[], hazards=[], parts=[], stage=0;
 let camTarget={x:0,y:0,zoom:1};
+
+function solidAt(px,py,pw,ph,ignoreOneWay){
+  for(const p of platforms){
+    if(p.gone) continue;
+    if(px+pw<=p.x||px>=p.x+p.w||py+ph<=p.y||py>=p.y+p.h) continue;
+    return p;
+  }
+  return null;
+}
+
+function tryLand(prevBottom){
+  if(player.vy<0) return;
+  const nb=player.y+player.h;
+  for(const p of platforms){
+    if(p.gone) continue;
+    if(prevBottom<=p.y+2 && nb>=p.y &&
+       player.x+player.w>p.x+1 && player.x<p.x+p.w-1){
+      player.y=p.y-player.h; player.vy=0; player.onGround=true;
+      player.safe={x:player.x,y:player.y-2};
+      onLand(p);
+      return p;
+    }
+  }
+  return null;
+}
+function onLand(p){
+  if(p.type==='crumble' && p.timer===undefined) p.timer=0.5;
+}
+
+/* ===========================================================================
+   STAGE 1 — THE ROLL PARATHA
+   grease (low friction) + flakes that crumble a beat after you land
+   =========================================================================== */
+const STAGES=[
+  {name:'THE ROLL PARATHA', sub:'stage one',
+   zoom:1.0, bounds:{x0:-430,x1:430,y0:1200,y1:5600},
+   start:{x:-30,y:5320}, finish:1420},
+  {name:'THE BEARD', sub:'stage two',
+   zoom:1.0, bounds:{x0:-1250,x1:1250,y0:-400,y1:2400},
+   start:{x:-60,y:2240}, finish:-200},
+  {name:'THE FOREHEAD', sub:'stage three',
+   zoom:1.0, bounds:{x0:-1300,x1:1300,y0:-2700,y1:-200},
+   start:{x:0,y:-340}, finish:-2450}
+];
+
+function buildStage1(){
+  platforms=[]; hazards=[]; parts=[];
+  const S=STAGES[0];
+  // the bottom end of the roll
+  platforms.push({x:-ROLL.r,y:5380,w:ROLL.r*2,h:40,type:'roll'});
+  let y=5380, px=0;
+  while(y>S.finish+60){
+    y -= rnd(42,50);
+    const w=rnd(62,120);
+    let nx=clamp(px+rnd(-120,120), -ROLL.r-60, ROLL.r-w+60);
+    px=nx+w/2;
+    // flakes near the hand become solid finger ledges
+    let type='flake';
+    const r=Math.random();
+    if(r<0.30) type='crumble';
+    else if(r<0.42) type='grease';
+    platforms.push({x:nx,y:y,w:w,h:12,type:type});
+    if(Math.random()<0.22){
+      const w2=rnd(50,80);
+      const x2=(nx<0)?rnd(40,ROLL.r-w2+40):rnd(-ROLL.r-40,-60);
+      platforms.push({x:x2,y:y-rnd(8,20),w:w2,h:12,type:Math.random()<0.3?'crumble':'flake'});
+    }
+  }
+  // his fingers: wide safe ledges mid-climb
+  for(let i=0;i<4;i++){
+    const fy=HAND.y+70+i*135;
+    platforms.push({x:-ROLL.r-250,y:fy,w:ROLL.r*2+500,h:26,type:'finger'});
+  }
+  platforms.sort((a,b)=>b.y-a.y);
+}
+
+function drawPlatform(p){
+  if(!onScreen(p.x+p.w/2,p.y,p.w)) return;
+  if(p.gone) return;
+  const shake=(p.type==='crumble'&&p.timer!==undefined)?Math.sin(perfNow*0.06)*6:0;
+  const x=p.x+shake;
+  switch(p.type){
+    case 'roll':
+      fRect(x,p.y,p.w,p.h,P.parDk); fRect(x,p.y,p.w,10,P.parLt); break;
+    case 'flake':
+      fRect(x,p.y,p.w,p.h,P.par);
+      fRect(x,p.y,p.w,5,P.parLt);
+      fRect(x,p.y+p.h-4,p.w,4,P.parChar);
+      fRect(x-6,p.y+2,8,8,P.parDk); fRect(x+p.w-2,p.y+2,8,8,P.parDk);
+      break;
+    case 'grease':
+      fRect(x,p.y,p.w,p.h,P.parLt);
+      fRect(x,p.y,p.w,4,'#ffe9b8');
+      fRect(x,p.y+p.h-3,p.w,3,P.parDk);
+      for(let i=4;i<p.w-4;i+=14) fEll(x+i,p.y+3,5,2.5,0,'rgba(255,255,255,0.75)');
+      break;
+    case 'crumble':
+      fRect(x,p.y,p.w,p.h,P.parDk);
+      fRect(x,p.y,p.w,4,P.par);
+      for(let i=3;i<p.w-3;i+=9) fRect(x+i,p.y+5,4,p.h-6,P.parChar);
+      break;
+    case 'finger':
+      fRect(x,p.y,p.w,p.h,P.skin);
+      fRect(x,p.y,p.w,6,P.skinLt);
+      fRect(x,p.y+p.h-6,p.w,6,P.skinSh);
+      break;
+  }
+}
+
+/* ===========================================================================
+   CUTSCENES
+   =========================================================================== */
+let state='title';        // title | cut | play | dead | win
+let cutStage=0, cutT=0, cutDone=false;
+let banner='', bannerT=0;
+let perfNow=0, gameT=0;
+
+function camTo(x,y,z){ cam.x=x; cam.y=y; cam.zoom=z; }
+function camLerpTo(x,y,z,t){ cam.x=lerp(cam.x,x,t); cam.y=lerp(cam.y,y,t); cam.zoom=lerp(cam.zoom,z,t); }
+
+/* keyframed camera: list of {t, x, y, z} */
+function camTrack(track, t){
+  let a=track[0];
+  for(let i=0;i<track.length-1;i++){
+    const k0=track[i], k1=track[i+1];
+    if(t>=k0.t && t<=k1.t){
+      const u=ease((t-k0.t)/(k1.t-k0.t));
+      camTo(lerp(k0.x,k1.x,u), lerp(k0.y,k1.y,u), lerp(k0.z,k1.z,u));
+      return;
+    }
+    a=k1;
+  }
+  const last=track[track.length-1];
+  camTo(last.x,last.y,last.z);
+}
+
+const CUT_DUR=[8.2, 7.4, 7.6];
+
+function updateCutscene(dt){
+  cutT+=dt;
+  const t=cutT;
+  // reset pose each frame
+  pose.jaw=0; pose.chew=0; pose.brow=0; pose.tilt=0; pose.eyeX=0; pose.eyeY=0;
+  pose.blink = (Math.sin(t*2.1)>0.975)?1:0;
+
+  if(cutStage===0){
+    /* --- he raises the roll, bites, chews; camera dives into the roll --- */
+    pose.eyeY = t<2 ? 0.3 : 0.1;
+    if(t>1.6 && t<2.6){ pose.jaw=ease(clamp((t-1.6)/0.9,0,1))*0.9; pose.brow=0.3; }
+    if(t>=2.6 && t<2.9){ pose.jaw=lerp(0.9,0.15,(t-2.6)/0.3); if(biteCount<1) biteCount=1; }
+    if(t>=2.9 && t<5.0){ pose.chew=0.55; pose.jaw=0.12+Math.abs(Math.sin((t-2.9)*6))*0.18; pose.brow=0.15; }
+    if(t>=5.0){ pose.jaw=0; pose.eyeY=0.35; }
+    camTrack([
+      {t:0,  x:0,   y:200,  z:0.075},
+      {t:1.4,x:60,  y:520,  z:0.085},
+      {t:2.6,x:60,  y:800,  z:0.115},
+      {t:4.2,x:30,  y:1100, z:0.16},
+      {t:5.2,x:0,   y:1500, z:0.30},
+      {t:8.2,x:STAGES[0].start.x, y:STAGES[0].start.y-70, z:1.0}
+    ], t);
+  }
+  if(cutStage===1){
+    /* --- razor comes up, first stroke down the cheek --- */
+    pose.tilt = -0.06*ease(clamp(t/1.6,0,1));
+    pose.brow = 0.2;
+    pose.foam = clamp((t-0.6)/1.2,0,1)*0.85;
+    pose.eyeY = 0.15;
+    camTrack([
+      {t:0,  x:0,   y:-260, z:0.062},
+      {t:1.6,x:-200,y:500,  z:0.10},
+      {t:3.4,x:-500,y:900,  z:0.17},
+      {t:5.0,x:-300,y:1400, z:0.34},
+      {t:7.4,x:STAGES[1].start.x, y:STAGES[1].start.y-70, z:1.0}
+    ], t);
+  }
+  if(cutStage===2){
+    /* --- brows up, sweat beads, camera climbs to the forehead --- */
+    pose.brow = ease(clamp((t-1.2)/1.1,0,1));
+    pose.sweat = clamp((t-2.2)/1.5,0,1);
+    pose.eyeY = -0.25;
+    camTrack([
+      {t:0,  x:0, y:-260, z:0.062},
+      {t:1.8,x:0, y:-200, z:0.10},
+      {t:3.6,x:0, y:-700, z:0.18},
+      {t:5.2,x:0, y:-1000,z:0.38},
+      {t:7.6,x:STAGES[2].start.x, y:STAGES[2].start.y-70, z:1.0}
+    ], t);
+  }
+
+  if(t>=CUT_DUR[cutStage]) startPlay(cutStage);
+}
+
+function startCutscene(s){
+  stage=s; cutStage=s; cutT=0; state='cut';
+  if(s===0) biteCount=0;
+  pose.foam=0; pose.sweat=0; pose.beardCut=0;
+}
+
+function startPlay(s){
+  stage=s; state='play';
+  const S=STAGES[s];
+  if(s===0) buildStage1();
+  player.x=S.start.x; player.y=S.start.y;
+  player.vx=0; player.vy=0; player.hearts=3; player.invuln=1;
+  player.dash=1; player.stamina=1; player.dead=false;
+  player.safe={x:player.x,y:player.y};
+  cam.zoom=S.zoom;
+  cam.x=player.x; cam.y=player.y-60;
+  banner=S.name; bannerT=2.4;
+  hazards=[]; parts=[];
+}
+
+function anyKey(){
+  if(state==='title'){ startCutscene(0); sfx(540,.09,'square',.05,1.6); }
+  else if(state==='cut'){ /* allow skip */ if(cutT>0.6) cutT=CUT_DUR[cutStage]-0.01; }
+  else if(state==='dead'){ startPlay(stage); }
+  else if(state==='win'){ state='title'; }
+}
+
+/* ===========================================================================
+   GAMEPLAY UPDATE
+   =========================================================================== */
+function hurt(fromX){
+  if(player.invuln>0) return;
+  player.hearts--; player.invuln=1.3;
+  player.vy=-180; player.vx=(fromX<player.x?90:-90);
+  sfx(170,.22,'sawtooth',.07,0.4);
+  for(let i=0;i<8;i++) parts.push({x:player.x+5,y:player.y+8,vx:rnd(-90,90),vy:rnd(-90,30),life:.45,c:'#ff8a9a'});
+  if(player.hearts<=0){ state='dead'; sfx(110,.6,'square',.07,0.3); }
+}
+
+function updatePlay(dt,inp){
+  const S=STAGES[stage];
+  if(player.invuln>0) player.invuln-=dt;
+  if(player.dashCool>0) player.dashCool-=dt;
+
+  /* ---- dash (stage 3 ability) ---- */
+  if(player.dashT>0){
+    player.dashT-=dt;
+    player.vx=player.dashVX; player.vy=player.dashVY;
+    if(player.dashT<=0){ player.vx*=0.45; player.vy*=0.35; }
+  } else {
+    /* ---- horizontal ---- */
+    const onGrease = player.onGround && standingOn && standingOn.type==='grease';
+    const accel = player.onGround ? (onGrease?0.07:0.32) : 0.13;
+    const decel = player.onGround ? (onGrease?0.035:0.4) : 0.055;
+    let ax=0;
+    if(inp.left) ax-=1;
+    if(inp.right) ax+=1;
+    if(ax!==0){ player.face=ax; player.vx=lerp(player.vx, ax*RUN, accel); }
+    else player.vx=lerp(player.vx,0,decel);
+
+    player.vy += GRAV*dt;
+    player.vy = Math.min(player.vy, MAXFALL);
+  }
+
+  /* ---- jump ---- */
+  if(inp.jumpE) player.buf=BUFFER;
+  if(player.buf>0) player.buf-=dt;
+  if(player.onGround) player.coyote=COYOTE; else if(player.coyote>0) player.coyote-=dt;
+  if(player.buf>0 && player.coyote>0 && player.dashT<=0){
+    player.vy=JUMP; player.onGround=false; player.coyote=0; player.buf=0;
+    sfx(620,.09,'square',.045,1.8);
+  }
+  if(!inp.jump && player.vy<JUMP_MIN) player.vy=JUMP_MIN;
+
+  /* ---- move + collide ---- */
+  const prevBottom=player.y+player.h;
+  player.x += player.vx*dt;
+  player.x = clamp(player.x, S.bounds.x0, S.bounds.x1-player.w);
+  player.y += player.vy*dt;
+  player.onGround=false;
+  standingOn = tryLand(prevBottom);
+
+  /* ---- animation ---- */
+  let st='idle';
+  if(player.dashT>0) st='dash';
+  else if(!player.onGround) st=player.vy<0?'jump':'fall';
+  else if(Math.abs(player.vx)>14) st='run';
+  player.st=st; player.animT+=dt;
+  const rate=st==='run'?0.1:0.3;
+  if(player.animT>rate){ player.animT=0; player.fr=player.fr===1?2:1; }
+
+  /* ---- crumbling platforms ---- */
+  for(const p of platforms){
+    if(p.type==='crumble' && p.timer!==undefined && !p.gone){
+      p.timer-=dt;
+      if(p.timer<=0){
+        p.gone=true; p.respawn=3.2; p.timer=undefined;
+        sfx(240,.18,'sawtooth',.04,0.5);
+        for(let i=0;i<7;i++) parts.push({x:p.x+rnd(0,p.w),y:p.y,vx:rnd(-50,50),vy:rnd(20,90),life:.7,c:P.parDk});
+      }
+    }
+    if(p.gone){
+      p.respawn-=dt;
+      if(p.respawn<=0 && !(player.x+player.w>p.x&&player.x<p.x+p.w&&Math.abs(player.y+player.h-p.y)<24)){
+        p.gone=false;
+      }
+    }
+  }
+
+  /* ---- hazards: bits falling from the bite ---- */
+  hazTimer-=dt;
+  if(hazTimer<=0){
+    hazTimer=rnd(0.55,1.0);
+    spawnFallingBit();
+  }
+  for(let i=hazards.length-1;i>=0;i--){
+    const h=hazards[i];
+    h.vy=Math.min(h.vy+520*dt, 620);
+    h.x+=h.vx*dt; h.y+=h.vy*dt; h.rot+=h.spin*dt;
+    if(h.y>player.y+500){ hazards.splice(i,1); continue; }
+    if(player.invuln<=0 && Math.abs(h.x-(player.x+player.w/2))<h.r+7 && Math.abs(h.y-(player.y+player.h/2))<h.r+9){
+      hurt(h.x); hazards.splice(i,1);
+    }
+  }
+  for(let i=parts.length-1;i>=0;i--){
+    const p=parts[i]; p.life-=dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=420*dt;
+    if(p.life<=0) parts.splice(i,1);
+  }
+
+  /* ---- fell off the bottom ---- */
+  if(player.y > camAnchor + 300){
+    player.hearts--;
+    if(player.hearts<=0){ state='dead'; }
+    else { player.x=player.safe.x; player.y=player.safe.y-12; player.vx=0; player.vy=0; player.invuln=1.2; }
+  }
+
+  /* ---- reached the top of the stage ---- */
+  if(player.y < S.finish){
+    if(stage<2){ startCutscene(stage+1); }
+    else { state='win'; }
+  }
+
+  /* ---- camera ---- */
+  if(player.onGround) camAnchor=Math.min(camAnchor,player.y);
+  const tx=clamp(player.x, S.bounds.x0+W/2/cam.zoom, S.bounds.x1-W/2/cam.zoom);
+  let ty=camAnchor-40;
+  cam.x=lerp(cam.x,tx,1-Math.pow(0.002,dt));
+  const tyc=clamp(ty, S.bounds.y0+H/2/cam.zoom, S.bounds.y1-H/2/cam.zoom);
+  if(tyc<cam.y) cam.y=lerp(cam.y,tyc,1-Math.pow(0.0015,dt));
+  cam.zoom=lerp(cam.zoom,S.zoom,1-Math.pow(0.05,dt));
+}
+let standingOn=null, hazTimer=1, camAnchor=0;
+
+function spawnFallingBit(){
+  const x=clamp(player.x+rnd(-150,150), -ROLL.r-40, ROLL.r+40);
+  const kind=Math.random();
+  hazards.push({
+    x, y:cam.y-H/2/cam.zoom-30, vx:rnd(-25,25), vy:rnd(60,120),
+    rot:rnd(0,6), spin:rnd(-4,4), r:kind<0.6?9:7,
+    type: kind<0.6?'chunk':(kind<0.85?'crumb':'sauce')
+  });
+}
+function drawHazard(h){
+  if(!onScreen(h.x,h.y,30)) return;
+  ctx.save();
+  ctx.translate(SX(h.x),SY(h.y)); ctx.rotate(h.rot);
+  const s=SS(1);
+  const R=(a,b,w,hh,c)=>{ctx.fillStyle=c;ctx.fillRect(a*s,b*s,Math.max(.6,w*s),Math.max(.6,hh*s));};
+  if(h.type==='chunk'){
+    R(-9,-7,18,14,P.parDk); R(-9,-7,18,5,P.par); R(-5,3,10,4,P.parChar);
+    R(2,-4,5,5,P.fillG);
+  } else if(h.type==='crumb'){
+    R(-5,-4,10,8,P.par); R(-5,-4,10,3,P.parLt);
+  } else {
+    ctx.fillStyle=P.sauce; ctx.beginPath();
+    ctx.ellipse(0,0,5*s,8*s,0,0,6.2832); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ===========================================================================
+   RENDER
+   =========================================================================== */
+function drawBG(){
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,P.bgLt); g.addColorStop(1,P.bg);
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+}
+
+function render(){
+  drawBG();
+  drawHasaan();
+  if(state==='cut'&&cutStage===0 || stage===0){
+    drawRoll(); drawHand();
+  }
+  if(state==='play'){
+    for(const p of platforms) drawPlatform(p);
+    for(const h of hazards) drawHazard(h);
+    for(const p of parts){
+      const s=Math.max(1,SS(3));
+      ctx.fillStyle=p.c; ctx.fillRect(SX(p.x),SY(p.y),s,s);
+    }
+    const flick=player.invuln>0&&Math.floor(gameT*18)%2===0;
+    if(!flick) drawHero(player.x,player.y,player.st,player.fr,player.face,false);
+    drawHUD();
+  }
+  if(state==='cut') drawCutUI();
+  if(state==='title') drawTitle();
+  if(state==='dead') drawDead();
+  if(state==='win') drawWin();
+}
+
+function drawHUD(){
+  for(let i=0;i<3;i++){
+    const x=6+i*11,y=6,on=i<player.hearts;
+    ctx.fillStyle=on?'#e8395a':'#3a2030'; ctx.fillRect(x,y,9,7);
+    ctx.fillRect(x+1,y-1,3,2); ctx.fillRect(x+5,y-1,3,2);
+  }
+  const S=STAGES[stage];
+  const prog=clamp((S.start.y-player.y)/(S.start.y-S.finish),0,1);
+  ctx.fillStyle='rgba(0,0,0,.35)'; ctx.fillRect(W-6,18,3,H-56);
+  ctx.fillStyle='#ffd95e'; ctx.fillRect(W-6,18+(H-56)*(1-prog),3,4);
+  ctx.fillStyle='#8fa0b4'; ctx.font='7px monospace'; ctx.textAlign='right';
+  ctx.fillText(S.sub.toUpperCase(), W-12, 13); ctx.textAlign='left';
+  if(bannerT>0){
+    ctx.globalAlpha=Math.min(1,bannerT/0.6);
+    ctx.fillStyle='rgba(6,6,12,.74)'; ctx.fillRect(0,H/2-20,W,30);
+    ctx.fillStyle='#ffd95e'; ctx.font='12px monospace'; ctx.textAlign='center';
+    ctx.fillText(banner,W/2,H/2);
+    ctx.textAlign='left'; ctx.globalAlpha=1;
+  }
+}
+function drawCutUI(){
+  const fade=clamp(1-cutT/0.6,0,1);
+  if(fade>0){ ctx.fillStyle='rgba(0,0,0,'+fade+')'; ctx.fillRect(0,0,W,H); }
+  const end=CUT_DUR[cutStage];
+  const outro=clamp((cutT-(end-0.45))/0.45,0,1);
+  if(outro>0){ ctx.fillStyle='rgba(0,0,0,'+outro+')'; ctx.fillRect(0,0,W,H); }
+  ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(0,0,W,26); ctx.fillRect(0,H-26,W,26);
+  ctx.fillStyle='#cfd6e0'; ctx.font='8px monospace'; ctx.textAlign='center';
+  const L=['he reaches for the roll paratha...','the razor comes out...','and now, the forehead.'];
+  if(cutT>0.8 && cutT<end-1) ctx.fillText(L[cutStage], W/2, H-10);
+  if(cutT>1.4) { ctx.fillStyle='#6b7a8c'; ctx.font='7px monospace'; ctx.fillText('any key to skip', W/2, 17); }
+  ctx.textAlign='left';
+}
+function drawTitle(){
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'rgba(5,5,12,.88)'); g.addColorStop(0.32,'rgba(5,5,12,.15)');
+  g.addColorStop(0.72,'rgba(5,5,12,.2)'); g.addColorStop(1,'rgba(5,5,12,.92)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center';
+  ctx.fillStyle='#ffd95e'; ctx.font='17px monospace';
+  ctx.fillText('THE ASCENT',W/2,34); ctx.fillText('OF HASAAN',W/2,54);
+  ctx.fillStyle='#cfd6e0'; ctx.font='8px monospace';
+  ctx.fillText('a climb in three courses',W/2,72);
+  ctx.fillStyle='#fff'; ctx.font='9px monospace';
+  if(Math.floor(gameT*2)%2===0) ctx.fillText('PRESS ANY KEY',W/2,336);
+  ctx.fillStyle='#8c9aac'; ctx.font='7px monospace';
+  ctx.fillText('arrows / WASD    jump: SPACE    action: X',W/2,360);
+  ctx.textAlign='left';
+}
+function drawDead(){
+  ctx.fillStyle='rgba(22,4,8,.82)'; ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center'; ctx.fillStyle='#ff5a6e'; ctx.font='15px monospace';
+  ctx.fillText('YOU FELL OFF',W/2,H/2-14);
+  ctx.fillStyle='#e8e8ff'; ctx.font='9px monospace';
+  ctx.fillText(STAGES[stage].name,W/2,H/2+6);
+  if(Math.floor(gameT*2)%2===0){ ctx.fillStyle='#ffd95e'; ctx.fillText('ANY KEY TO RETRY',W/2,H/2+36); }
+  ctx.textAlign='left';
+}
+function drawWin(){
+  ctx.fillStyle='rgba(8,10,20,.8)'; ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center'; ctx.fillStyle='#ffd95e'; ctx.font='14px monospace';
+  ctx.fillText('SUMMIT REACHED',W/2,180);
+  ctx.fillStyle='#e8e8ff'; ctx.font='8px monospace';
+  ctx.fillText('the paratha, the beard, the forehead.',W/2,204);
+  ctx.fillText('all of Hasaan, conquered.',W/2,218);
+  if(Math.floor(gameT*2)%2===0){ ctx.fillStyle='#fff'; ctx.font='9px monospace';
+    ctx.fillText('PRESS ANY KEY',W/2,260); }
+  ctx.textAlign='left';
+}
+
+/* ===========================================================================
+   TITLE IDLE + LOOP
+   =========================================================================== */
+function updateTitle(dt){
+  pose.blink=(Math.sin(gameT*2.3)>0.97)?1:0;
+  pose.jaw=0; pose.chew=0;
+  pose.brow=Math.sin(gameT*0.6)*0.12;
+  pose.eyeX=Math.sin(gameT*0.4)*0.25;
+  pose.tilt=Math.sin(gameT*0.33)*0.015;
+  camTo(0, -260+Math.sin(gameT*0.5)*40, 0.062);
+}
+
+let last=performance.now();
+function update(dt){
+  gameT+=dt; perfNow=performance.now();
+  if(bannerT>0) bannerT-=dt;
+  if(state==='title') updateTitle(dt);
+  else if(state==='cut') updateCutscene(dt);
+  else if(state==='play') updatePlay(dt, input());
+}
+function loop(now){
+  const dt=Math.min(0.045,(now-last)/1000); last=now;
+  update(dt); render();
+  justK={}; edgeJump=false; edgeAct=false;
+  requestAnimationFrame(loop);
+}
+buildStage1();
+camAnchor=STAGES[0].start.y;
+requestAnimationFrame(loop);
+
+/* debug hooks for headless screenshots */
+window.__dbg={
+  setCut(s,t){ startCutscene(s); cutT=t; updateCutscene(0); render(); },
+  setPlay(s){ startPlay(s); render(); },
+  setState(s){ state=s; render(); },
+  step(dt){ update(dt); render(); },
+  cam, pose, player,
+  get state(){return state;},
+  get platforms(){return platforms;}
+};
+})();
+</script>
+</body>
+</html>
