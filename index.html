@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>The Ascent of Hasaan</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;width:100%;background:#06060a;
+    display:flex;align-items:center;justify-content:center;overflow:hidden;
+    font-family:'Courier New',monospace;touch-action:none;-webkit-user-select:none;user-select:none;}
+  #wrap{position:relative;}
+  canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges;background:#000;
+    box-shadow:0 0 0 3px #14141d,0 0 0 6px #2b2b3a,0 14px 50px rgba(0,0,0,.75);}
+  #touch{position:absolute;left:0;right:0;bottom:0;display:none;justify-content:space-between;
+    padding:10px;box-sizing:border-box;pointer-events:none;}
+  #touch .side{display:flex;gap:8px;pointer-events:auto;}
+  #touch button{width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.13);
+    border:2px solid rgba(255,255,255,.28);color:#fff;font-size:17px;font-family:inherit;}
+  #touch button:active{background:rgba(255,255,255,.3);}
+  body.touch #touch{display:flex;}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="g" width="288" height="384"></canvas>
+  <div id="touch">
+    <div class="side"><button id="bL">&#9664;</button><button id="bR">&#9654;</button></div>
+    <div class="side"><button id="bK">&#10022;</button><button id="bJ">&#9650;</button></div>
+  </div>
+</div>
+<script>
+(function(){
+"use strict";
+
+/* ============================================================================
+   THE ASCENT OF HASAAN
+   One giant man, rendered in a single "face-space" coordinate system.
+   The camera zooms continuously between cinematic (whole face) and
+   gameplay (climbing one feature), so cutscene -> level is a real zoom.
+   ============================================================================ */
+
+const W=288, H=384;
+const canvas=document.getElementById('g');
+const ctx=canvas.getContext('2d');
+ctx.imageSmoothingEnabled=false;
+function fit(){
+  const s=Math.min(window.innerWidth/W, window.innerHeight/H)*0.96;
+  canvas.style.width=Math.floor(W*s)+'px'; canvas.style.height=Math.floor(H*s)+'px';
+  const t=document.getElementById('touch');
+  t.style.width=Math.floor(W*s)+'px'; t.style.height=Math.floor(H*s)+'px';
+}
+window.addEventListener('resize',fit); fit();
+if('ontouchstart' in window) document.body.classList.add('touch');
+
+/* ---------------------------------- util --------------------------------- */
+const clamp=(v,a,b)=>v<a?a:(v>b?b:v);
+const lerp=(a,b,t)=>a+(b-a)*t;
+const ease=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+const easeOut=t=>1-Math.pow(1-t,3);
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const rndi=(a,b)=>Math.floor(rnd(a,b+1));
+function hash(n){const s=Math.sin(n*127.1)*43758.5453;return s-Math.floor(s);}
+
+/* --------------------------- face-space anatomy --------------------------- */
+/* origin: between the eyes. +y is down. units are "face pixels" (FP).        */
+const A={
+  cranTop:-2050, hairTop:-2780, hairSideW:1560,
+  hairline:-1310, brow:-300, eyeY:0, eyeDX:555, eyeRX:300, eyeRY:150,
+  noseTop:-150, noseBase:640, noseHalfW:220,
+  lipY:1015, mouthHalfW:430,
+  chin:1935, jawHalfW:1130, headHalfW:1255,
+  neck:2180, shoulder:2720,
+  earY:150
+};
+
+/* ---------------------------------- palette ------------------------------- */
+const P={
+  skin:'#d9a97f', skinLt:'#ecc39a', skinHi:'#f7d9b4', skinDk:'#b4815a', skinSh:'#8f5f3e', skinDeep:'#6d452b',
+  hair:'#241d19', hairMid:'#352b24', hairHi:'#4d3f33', hairDeep:'#140f0d',
+  lip:'#a9675c', lipDk:'#80473e', mouth:'#331c19', tongue:'#8d4a44',
+  eyeW:'#efe7de', iris:'#4a3526', irisLt:'#6b4f38', pupil:'#140e09',
+  sweater:'#f0e8d8', sweaterSh:'#cfc3ab', sweaterDk:'#aa9e88',
+  par:'#e3ab63', parLt:'#f2c display', parDk:'#c6873f', parChar:'#8a5a24', parDeep:'#64401a',
+  fillG:'#5a9e45', fillR:'#c2452f', sauce:'#efe0c6',
+  steel:'#d2d9e4', steelDk:'#8d96a6', steelHi:'#ffffff',
+  heroSkin:'#f0bd84', heroShirt:'#2fb3a8', heroShirtDk:'#1b857c', heroPants:'#38446a', heroHair:'#241a16',
+  bg:'#0d1016', bgLt:'#1b222e'
+};
+P.parLt='#f2c984';
+
+/* ---------------------------------- camera -------------------------------- */
+const cam={x:0,y:0,zoom:0.08};
+const SX=x=>(x-cam.x)*cam.zoom+W/2;
+const SY=y=>(y-cam.y)*cam.zoom+H/2;
+const SS=v=>v*cam.zoom;
+function onScreen(x,y,r){
+  const sx=SX(x), sy=SY(y), sr=SS(r)+4;
+  return sx>-sr && sx<W+sr && sy>-sr && sy<H+sr;
+}
+/* path + shape helpers, all taking face-space coords */
+const pM=(x,y)=>ctx.moveTo(SX(x),SY(y));
+const pL=(x,y)=>ctx.lineTo(SX(x),SY(y));
+const pC=(a,b,c,d,e,f)=>ctx.bezierCurveTo(SX(a),SY(b),SX(c),SY(d),SX(e),SY(f));
+const pQ=(a,b,c,d)=>ctx.quadraticCurveTo(SX(a),SY(b),SX(c),SY(d));
+function fill(c){ctx.fillStyle=c;ctx.fill();}
+function fCircle(x,y,r,c){ctx.fillStyle=c;ctx.beginPath();ctx.arc(SX(x),SY(y),Math.max(.35,SS(r)),0,6.2832);ctx.fill();}
+function fEll(x,y,rx,ry,rot,c){ctx.fillStyle=c;ctx.beginPath();
+  ctx.ellipse(SX(x),SY(y),Math.max(.35,SS(rx)),Math.max(.35,SS(ry)),rot||0,0,6.2832);ctx.fill();}
+function fRect(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(SX(x),SY(y),Math.max(.6,SS(w)),Math.max(.6,SS(h)));}
+
+/* ===========================================================================
+   HASAAN  — procedural, poseable, drawn in face space at any zoom
+   =========================================================================== */
+const pose={
+  jaw:0,        // 0 closed .. 1 wide open
+  chew:0,       // chewing cycle amount
+  blink:0,      // 0 open .. 1 shut
+  brow:0,       // -1 furrow .. 1 raised
+  eyeX:0, eyeY:0,
+  tilt:0,       // head rotation (radians)
+  breathe:0,
+  beardCut:0,   // 0 full beard .. 1 shaved (stage 2 progress)
+  foam:0,       // shaving foam coverage
+  sweat:0
+};
+
+/* jaw displacement: points lower on the face follow the jaw as it opens */
+function jawOff(y){
+  const w=clamp((y-520)/1100,0,1);
+  return w*(pose.jaw*300 + Math.sin(pose.chew*Math.PI*2)*pose.chew*70);
+}
+const JY=y=>y+jawOff(y);
+
+/* ---- head silhouette (skull + cheeks + jaw), jaw-aware ---- */
+function headPath(grow){
+  const g=grow||0;
+  const hw=A.headHalfW+g, jw=A.jawHalfW+g;
+  ctx.beginPath();
+  pM(0, A.cranTop-g);
+  pC( 760, A.cranTop-g,  hw, -1500,  hw, -560);          // right temple
+  pC( hw, 180, hw-40, 700, jw+90, JY(1180));             // right cheek
+  pC( jw-10, JY(1620), 700, JY(A.chin+g-40), 0, JY(A.chin+g)); // jaw -> chin
+  pC(-700, JY(A.chin+g-40), -(jw-10), JY(1620), -(jw+90), JY(1180));
+  pC(-hw+40, 700, -hw, 180, -hw, -560);
+  pC(-hw, -1500, -760, A.cranTop-g, 0, A.cranTop-g);
+  ctx.closePath();
+}
+
+function drawEar(side){
+  const x=side*(A.headHalfW-30);
+  fEll(x, A.earY, 110, 190, 0, P.skinDk);
+  fEll(x+side*14, A.earY+10, 70, 130, 0, P.skinSh);
+  fEll(x-side*6, A.earY-20, 44, 80, 0, P.skinDeep);
+}
+
+/* ---- hair: big curly volume. LOD-aware so it reads tiny or huge ---- */
+function drawHair(back){
+  const detail = cam.zoom>0.22;
+  if(back){
+    ctx.beginPath();
+    pM(-A.hairSideW, -300);
+    pC(-A.hairSideW-60, -1700, -1000, A.hairTop-120, 0, A.hairTop-90);
+    pC(1000, A.hairTop-120, A.hairSideW+60, -1700, A.hairSideW, -300);
+    pC(A.hairSideW-60, 120, 1100, -200, 900, -900);
+    pL(-900,-900);
+    pC(-1100,-200,-(A.hairSideW-60),120,-A.hairSideW,-300);
+    ctx.closePath(); fill(P.hairDeep);
+    return;
+  }
+  // main mass
+  ctx.beginPath();
+  pM(-1440, -560);
+  pC(-1520, -1800, -980, A.hairTop, 0, A.hairTop);
+  pC(980, A.hairTop, 1520, -1800, 1440, -560);
+  pC(1300, -980, 980, A.hairline-150, 540, A.hairline+40);   // right hairline
+  pC(240, A.hairline-70, -240, A.hairline-70, -540, A.hairline+40);
+  pC(-980, A.hairline-150, -1300, -980, -1440, -560);
+  ctx.closePath(); fill(P.hair);
+
+  if(!detail){
+    ctx.save();
+    ctx.beginPath();                                   // clip lumps to the hair mass
+    pM(-1440,-560);
+    pC(-1520,-1800,-980,A.hairTop,0,A.hairTop);
+    pC(980,A.hairTop,1520,-1800,1440,-560);
+    pC(1300,-980,980,A.hairline-150,540,A.hairline+40);
+    pC(240,A.hairline-70,-240,A.hairline-70,-540,A.hairline+40);
+    pC(-980,A.hairline-150,-1300,-980,-1440,-560);
+    ctx.closePath(); ctx.clip();
+    for(let i=-4;i<=4;i++)
+      fCircle(i*330, A.hairTop+330+hash(i)*260, 330, i%2?P.hairMid:P.hair);
+    ctx.restore();
+    return;
+  }
+  // curls: only those on screen
+  for(let cx=-1500; cx<=1500; cx+=118){
+    for(let cy=A.hairTop-60; cy<A.hairline+120; cy+=112){
+      const n=Math.floor(cx*0.013+cy*0.021)*7.3;
+      const ox=cx+hash(n)*90-45, oy=cy+hash(n+2)*80-40;
+      // stay inside the hair mass
+      const ny=(oy-A.hairTop)/(A.hairline-A.hairTop);
+      const halfW=lerp(980,1460,clamp(ny*1.5,0,1));
+      if(Math.abs(ox)>halfW) continue;
+      if(oy>A.hairline-60 && Math.abs(ox)<620) continue;      // keep the forehead clear
+      if(!onScreen(ox,oy,120)) continue;
+      const r=78+hash(n+5)*52;
+      const v=hash(n+9);
+      fCircle(ox,oy,r, v>0.72?P.hairHi : (v>0.4?P.hairMid:P.hair));
+      if(v>0.86) fCircle(ox-r*0.3, oy-r*0.3, r*0.4, P.hairHi);
+    }
+  }
+}
+
+/* ---- beard: covers jaw + cheeks, follows the jaw, shaveable ---- */
+function beardTop(x){
+  // top edge of the beard: sideburn (high, by the ear) -> cheek -> just under the lip
+  const t=clamp(Math.abs(x)/A.headHalfW,0,1);
+  if(Math.abs(x)<A.mouthHalfW+60) return A.lipY+150;
+  return lerp(A.lipY+150, 150, Math.pow((t-0.34)/0.66, 0.78));
+}
+function beardPath(){
+  ctx.beginPath();
+  pM(-1245, 130);                                     // left sideburn
+  pC(-1215, 560, -1050, 830, -700, 1010);             // down the cheek
+  pC(-560, 1080, -500, 1120, -470, JY(A.lipY+140));   // to the mouth corner
+  pQ(0, JY(A.lipY+330), 470, JY(A.lipY+140));         // under the lower lip
+  pC(500, 1120, 560, 1080, 700, 1010);
+  pC(1050, 830, 1215, 560, 1245, 130);                // right sideburn
+  pC(1270, 700, 1215, JY(1420), 900, JY(1760));       // outer jaw (fluffier than the skin)
+  pC(520, JY(A.chin+170), -520, JY(A.chin+170), -900, JY(1760));
+  pC(-1215, JY(1420), -1270, 700, -1245, 130);
+  ctx.closePath();
+}
+function drawBeard(){
+  const cut=pose.beardCut, detail=cam.zoom>0.2;
+  beardPath(); fill(cut>0.85?P.skinDk:P.hairDeep);
+  if(detail){
+    ctx.save(); beardPath(); ctx.clip();
+    for(let cx=-1300; cx<=1300; cx+=82){
+      for(let cy=60; cy<A.chin+220; cy+=78){
+        const yy=JY(cy);
+        const n=Math.floor(cx*0.017+cy*0.021)*5.1;
+        if(hash(n)<cut) continue;
+        const ox=cx+hash(n)*62-31, oy=yy+hash(n+3)*56-28;
+        if(!onScreen(ox,oy,90)) continue;
+        const r=46+hash(n+7)*34, v=hash(n+11);
+        fCircle(ox,oy,r, v>0.80?P.hairHi:(v>0.44?P.hairMid:P.hair));
+      }
+    }
+    ctx.restore();
+  }
+  // moustache sits above the lip, separate from the beard mass
+  if(cut<0.9){
+    ctx.beginPath();
+    pM(-430, JY(A.lipY-60));
+    pC(-390, A.lipY-300, -140, A.lipY-250, 0, A.lipY-210);
+    pC(140, A.lipY-250, 390, A.lipY-300, 430, JY(A.lipY-60));
+    pQ(0, A.lipY-110, -430, JY(A.lipY-60));
+    ctx.closePath(); fill(P.hairDeep);
+    if(detail) for(let mx=-400; mx<=400; mx+=58){
+      const n=Math.floor(mx*0.03)*3.7;
+      if(hash(n+40)<cut*0.8) continue;
+      fCircle(mx, A.lipY-195+Math.abs(mx)*0.10, 54+hash(n)*20, hash(n+2)>0.62?P.hairMid:P.hair);
+    }
+  }
+}
+function drawEyes(){
+  const bl=pose.blink;
+  for(const side of [-1,1]){
+    const ex=side*A.eyeDX, ey=A.eyeY;
+    const openY=A.eyeRY*(1-bl);
+    fEll(ex, ey+30, A.eyeRX+70, A.eyeRY+120, 0, 'rgba(150,97,60,0.22)');   // soft socket
+    if(openY>5){
+      ctx.beginPath();                                   // almond sclera
+      pM(ex-A.eyeRX, ey+10);
+      pQ(ex-A.eyeRX*0.45, ey-openY*1.5, ex+A.eyeRX*0.35, ey-openY*1.1);
+      pQ(ex+A.eyeRX*0.92, ey-openY*0.55, ex+A.eyeRX, ey+6);
+      pQ(ex+A.eyeRX*0.45, ey+openY*1.15, ex-A.eyeRX*0.3, ey+openY*1.0);
+      pQ(ex-A.eyeRX*0.85, ey+openY*0.55, ex-A.eyeRX, ey+10);
+      ctx.closePath(); fill(P.eyeW);
+      const ix=ex+pose.eyeX*120, iy=ey+pose.eyeY*50;
+      const ir=Math.min(140, openY*1.35+52);
+      fCircle(ix, iy, ir, P.iris);
+      fCircle(ix, iy, ir*0.70, P.irisLt);
+      fCircle(ix, iy, ir*0.44, P.pupil);
+      fCircle(ix-ir*0.33, iy-ir*0.38, ir*0.24, '#ffffff');
+      ctx.save();                                        // lid shadow, clipped to the eye
+      ctx.beginPath();
+      pM(ex-A.eyeRX, ey+10);
+      pQ(ex-A.eyeRX*0.45, ey-openY*1.5, ex+A.eyeRX*0.35, ey-openY*1.1);
+      pQ(ex+A.eyeRX*0.92, ey-openY*0.55, ex+A.eyeRX, ey+6);
+      pQ(ex+A.eyeRX*0.45, ey+openY*1.15, ex-A.eyeRX*0.3, ey+openY*1.0);
+      pQ(ex-A.eyeRX*0.85, ey+openY*0.55, ex-A.eyeRX, ey+10);
+      ctx.closePath(); ctx.clip();
+      fEll(ex, ey-openY*1.25, A.eyeRX, openY*0.8, 0, 'rgba(60,34,18,0.30)');
+      ctx.restore();
+    }
+    // upper lid / lash line: a thin dark arc, not a slab
+    ctx.beginPath();
+    pM(ex-A.eyeRX-14, ey+2);
+    pQ(ex-A.eyeRX*0.45, ey-openY*1.62, ex+A.eyeRX*0.36, ey-openY*1.22);
+    pQ(ex+A.eyeRX*0.95, ey-openY*0.62, ex+A.eyeRX+10, ey+2);
+    pQ(ex+A.eyeRX*0.5, ey-openY*0.95, ex-A.eyeRX*0.35, ey-openY*1.3);
+    pQ(ex-A.eyeRX*0.9, ey-openY*0.7, ex-A.eyeRX-14, ey+2);
+    ctx.closePath(); fill(P.hairDeep);
+    fEll(ex, ey+openY+66, A.eyeRX*0.8, 30, 0, 'rgba(140,88,52,0.28)');     // under-eye
+  }
+}
+function drawBrows(){
+  const r=pose.brow*150;
+  for(const side of [-1,1]){
+    const bx=side*A.eyeDX, by=A.brow-r;
+    ctx.beginPath();
+    pM(bx-side*370, by+110);
+    pQ(bx-side*120, by-125, bx+side*300, by-40);
+    pQ(bx+side*360, by-5, bx+side*330, by+95);
+    pQ(bx-side*60, by+45, bx-side*370, by+185);
+    ctx.closePath(); fill(P.hair);
+    if(cam.zoom>0.25){
+      for(let i=-5;i<=5;i++){
+        const t=i/5, hx=bx+side*t*330, hy=by+20-Math.abs(t)*40+(t<0?80:0);
+        fCircle(hx,hy,52+hash(i*3.1)*22, hash(i*2.2)>0.6?P.hairMid:P.hair);
+      }
+    }
+  }
+}
+
+function drawNose(){
+  const nb=A.noseBase;
+  ctx.beginPath();
+  pM(-A.noseHalfW+40, nb);
+  pC(-150, 120, -120, -120, -40, A.noseTop);
+  pL(40, A.noseTop);
+  pC(120,-120, 150, 120, A.noseHalfW-40, nb);
+  ctx.closePath(); fill(P.skinLt);
+  fEll(-A.noseHalfW+70, nb-40, 120, 110, 0, P.skinLt);
+  fEll(A.noseHalfW-70, nb-40, 120, 110, 0, P.skinLt);
+  fEll(0, nb-70, 200, 150, 0, P.skinHi);
+  // nostrils + under-shadow
+  fEll(-150, nb-10, 70, 46, -0.25, P.skinDeep);
+  fEll( 150, nb-10, 70, 46,  0.25, P.skinDeep);
+  fEll(0, nb+70, 215, 52, 0, 'rgba(110,66,38,0.42)');
+  // bridge shading
+  fRect(-A.noseHalfW-10, -180, 60, 700, 'rgba(140,90,56,0.22)');
+  fRect(A.noseHalfW-50, -180, 60, 700, 'rgba(140,90,56,0.22)');
+}
+
+function drawMouth(){
+  const open=pose.jaw;
+  const ly=JY(A.lipY);
+  if(open>0.02){
+    ctx.beginPath();
+    pM(-A.mouthHalfW, A.lipY-40);
+    pQ(0, A.lipY-120, A.mouthHalfW, A.lipY-40);
+    pQ(A.mouthHalfW*0.7, ly+120, 0, ly+150);
+    pQ(-A.mouthHalfW*0.7, ly+120, -A.mouthHalfW, A.lipY-40);
+    ctx.closePath(); fill(P.mouth);
+    if(open>0.25) fEll(0, ly+60, A.mouthHalfW*0.52, 90*open, 0, P.tongue);
+  }
+  // upper lip (static)
+  ctx.beginPath();
+  pM(-A.mouthHalfW, A.lipY-30);
+  pQ(-200, A.lipY-140, -70, A.lipY-70);
+  pQ(0, A.lipY-120, 70, A.lipY-70);
+  pQ(200, A.lipY-140, A.mouthHalfW, A.lipY-30);
+  pQ(180, A.lipY+10, 0, A.lipY+20);
+  pQ(-180, A.lipY+10, -A.mouthHalfW, A.lipY-30);
+  ctx.closePath(); fill(P.lip);
+  // lower lip (follows jaw)
+  ctx.beginPath();
+  pM(-A.mouthHalfW+40, ly+10);
+  pQ(0, ly+40, A.mouthHalfW-40, ly+10);
+  pQ(A.mouthHalfW*0.6, ly+170, 0, ly+185);
+  pQ(-A.mouthHalfW*0.6, ly+170, -A.mouthHalfW+40, ly+10);
+  ctx.closePath(); fill(P.lipDk);
+  fEll(0, ly+95, A.mouthHalfW*0.5, 54, 0, P.lip);
+}
+
+function drawSweater(){
+  const y=A.shoulder;
+  ctx.beginPath();
+  pM(-3000, 4200);
+  pC(-2400, y+140, -1250, y-180, -700, A.neck+170);
+  pQ(0, A.neck+470, 700, A.neck+170);
+  pC(1250, y-180, 2400, y+140, 3000, 4200);
+  ctx.closePath(); fill(P.sweater);
+  // collar
+  ctx.beginPath();
+  pM(-700, A.neck+170);
+  pQ(0, A.neck+470, 700, A.neck+170);
+  pQ(0, A.neck+700, -700, A.neck+170);
+  ctx.closePath(); fill(P.sweaterSh);
+  if(cam.zoom>0.12){
+    for(let i=-2600;i<=2600;i+=190){
+      const top=y+60+Math.abs(i)*0.1;
+      fRect(i, top, 54, 4200-top, P.sweaterSh);
+      fRect(i+70, top+40, 18, 4200-top, P.sweaterDk);
+    }
+  }
+}
+
+function drawNeck(){
+  fRect(-620, A.chin-220, 1240, 900, P.skinDk);
+  fEll(0, A.neck+120, 620, 300, 0, P.skinDk);
+  fEll(0, A.chin+120, 700, 260, 0, 'rgba(90,56,32,0.45)');
+}
+
+/* full character */
+function drawHasaan(){
+  ctx.save();
+  if(pose.tilt){
+    const px=SX(0), py=SY(A.neck);
+    ctx.translate(px,py); ctx.rotate(pose.tilt); ctx.translate(-px,-py);
+  }
+  drawSweater();
+  drawNeck();
+  drawHair(true);
+  drawEar(-1); drawEar(1);
+  // face
+  headPath(0); fill(P.skin);
+  // shading
+  ctx.save(); headPath(0); ctx.clip();
+  // key light from the upper left, soft falloff
+  let rg=ctx.createRadialGradient(SX(-330),SY(-620),SS(120), SX(-330),SY(-620),SS(2100));
+  rg.addColorStop(0,'rgba(255,224,190,0.55)');
+  rg.addColorStop(0.45,'rgba(240,200,160,0.18)');
+  rg.addColorStop(1,'rgba(240,200,160,0)');
+  ctx.fillStyle=rg; ctx.fillRect(0,0,W,H);
+  // rim shadow down both sides
+  let lg=ctx.createLinearGradient(SX(-A.headHalfW),0,SX(-A.headHalfW+520),0);
+  lg.addColorStop(0,'rgba(104,64,36,0.55)'); lg.addColorStop(1,'rgba(104,64,36,0)');
+  ctx.fillStyle=lg; ctx.fillRect(0,0,W,H);
+  lg=ctx.createLinearGradient(SX(A.headHalfW),0,SX(A.headHalfW-520),0);
+  lg.addColorStop(0,'rgba(104,64,36,0.55)'); lg.addColorStop(1,'rgba(104,64,36,0)');
+  ctx.fillStyle=lg; ctx.fillRect(0,0,W,H);
+  // brow ridge + temple hollows
+  fEll(-700,-520, 420, 300, 0, 'rgba(150,96,58,0.16)');
+  fEll( 700,-520, 420, 300, 0, 'rgba(150,96,58,0.16)');
+  ctx.restore();
+  drawNose();
+  drawMouth();
+  drawBeard();
+  drawEyes();
+  drawBrows();
+  drawHair(false);
+  if(pose.foam>0) drawFoam();
+  if(pose.sweat>0) drawSweatBeads();
+  ctx.restore();
+}
+
+function drawFoam(){
+  const f=pose.foam;
+  for(let cx=-1150;cx<=1150;cx+=120){
+    const top=beardTop(cx);
+    for(let cy=top;cy<A.chin+40;cy+=110){
+      const n=Math.floor(cx*0.015+cy*0.02)*4.3;
+      if(hash(n+21)>f) continue;
+      const ox=cx+hash(n)*80-40, oy=JY(cy)+hash(n+1)*70-35;
+      if(Math.abs(ox)>A.jawHalfW+40) continue;
+      if(!onScreen(ox,oy,130)) continue;
+      fCircle(ox,oy,80+hash(n+6)*45,'rgba(250,248,244,0.93)');
+      fCircle(ox-25,oy-25,36+hash(n+8)*20,'#ffffff');
+    }
+  }
+}
+function drawSweatBeads(){
+  for(let i=0;i<9;i++){
+    const bx=-900+hash(i*3.7)*1800, by=A.hairline+180+hash(i*5.1)*700;
+    if(hash(i*2.3)>pose.sweat) continue;
+    if(!onScreen(bx,by,90)) continue;
+    fEll(bx,by,46,62,0,'rgba(190,225,245,0.82)');
+    fCircle(bx-14,by-18,16,'#ffffff');
+  }
+}
+
+/* --------------------------- props: the roll paratha ---------------------- */
+/* vertical roll, axis x=0, bitten at the top */
+const ROLL={x:0, top:1250, bottom:5500, r:300};
+let biteCount=0;
+
+function drawRoll(){
+  const detail=cam.zoom>0.2;
+  const top=ROLL.top + biteCount*0;
+  // body
+  fRect(-ROLL.r, top, ROLL.r*2, ROLL.bottom-top, P.par);
+  fRect(-ROLL.r, top, 90, ROLL.bottom-top, P.parDk);
+  fRect(ROLL.r-90, top, 90, ROLL.bottom-top, P.parDk);
+  fRect(-ROLL.r+90, top, 70, ROLL.bottom-top, P.parLt);
+  // the wrap spiral + char marks
+  const step=detail?120:420;
+  for(let y=top; y<ROLL.bottom; y+=step){
+    const n=Math.floor(y/step);
+    fRect(-ROLL.r, y, ROLL.r*2, 16, P.parDk);
+    fRect(-ROLL.r, y+16, ROLL.r*2, 8, P.parDeep);
+    if(hash(n)>0.62) fEll(-120+hash(n*2)*280, y+58, 70+hash(n)*40, 34, 0, P.parChar);
+    if(hash(n+5)>0.78) fEll(-180+hash(n*3)*340, y+90, 46, 24, 0, P.parChar);
+    if(detail && hash(n+11)>0.7){                   // filling peeking out
+      fEll(-ROLL.r+40, y+70, 44, 30, 0, hash(n)>0.5?P.fillG:P.fillR);
+      fEll(ROLL.r-40, y+40, 40, 26, 0, hash(n+1)>0.5?P.fillR:P.fillG);
+    }
+  }
+  // bitten top: crescent chunks removed
+  fEll(0, top+40, ROLL.r, 90, 0, P.parLt);
+  for(let i=0;i<=biteCount;i++){
+    const bx=-160+i*150;
+    fEll(bx, top+10, 150, 110, 0, P.bgLt||P.bg);
+  }
+  // exposed filling at the bite
+  fEll(-60, top+95, 150, 60, 0, P.fillG);
+  fEll(110, top+120, 120, 50, 0, P.fillR);
+  fEll(10, top+150, 180, 50, 0, P.sauce);
+}
+
+/* his hand gripping the roll (also a landmark ledge in stage 1) */
+const HAND={y:3250};
+function drawHand(){
+  const y=HAND.y;
+  fRect(-ROLL.r-250, y, ROLL.r*2+500, 620, P.skin);
+  fEll(0, y, ROLL.r+250, 90, 0, P.skinLt);
+  for(let i=0;i<4;i++){
+    const fy=y+70+i*135;
+    fRect(-ROLL.r-250, fy, ROLL.r*2+500, 118, P.skin);
+    fRect(-ROLL.r-250, fy+104, ROLL.r*2+500, 22, P.skinSh);
+    fEll(ROLL.r+230, fy+56, 70, 56, 0, P.skinLt);
+    fEll(-ROLL.r-230, fy+56, 70, 56, 0, P.skinDk);
+  }
+  fRect(-ROLL.r-250, y+620, ROLL.r*2+500, 240, P.sweater);
+  for(let i=-ROLL.r-250;i<ROLL.r+250;i+=120) fRect(i, y+620, 40, 240, P.sweaterSh);
+}
+
+/* razor (stage 2) */
+function drawRazor(x,y,ang,scale){
+  ctx.save();
+  ctx.translate(SX(x),SY(y)); ctx.rotate(ang||0);
+  const s=SS(scale||1);
+  const R=(a,b,c,d,col)=>{ctx.fillStyle=col;ctx.fillRect(a*s,b*s,c*s,d*s);};
+  R(-60,-26,34,300,'#2f3a4c'); R(-54,-20,12,290,'#4b5c76');     // handle
+  R(-110,-70,150,110,P.steelDk); R(-110,-70,150,34,P.steel);    // head
+  R(-120,-96,170,30,P.steelHi); R(-120,-70,170,10,P.steel);     // blade edge
+  ctx.restore();
+}
+
+/* ------------------------------- the climber ------------------------------ */
+function drawHero(px,py,st,fr,face,flash){
+  const s=SS(1);
+  const R=(a,b,w,h,c)=>{ctx.fillStyle=flash?'#fff':c;
+    ctx.fillRect(SX(px)+a*s, SY(py)+b*s, Math.max(.6,w*s), Math.max(.6,h*s));};
+  const skin=P.heroSkin, shirt=P.heroShirt, shirtD=P.heroShirtDk, pants=P.heroPants, hair=P.heroHair;
+  if(st==='crawl'){
+    const p=fr===1?1:0;
+    R(-1,9,13,5,shirt); R(-1,12,13,2,shirtD);
+    R(face>0?10:-2,6,5,5,skin); R(face>0?10:-2,5,5,2,hair);
+    R(1+p,13,3,3,pants); R(7-p,13,3,3,pants);
+    return;
+  }
+  if(st==='grab'){
+    R(2,5,8,9,shirt); R(2,11,8,2,shirtD);
+    R(face>0?8:0,1,3,6,skin);               // reaching arm
+    R(3,-1,7,7,skin); R(2,-2,9,3,hair);
+    R(2,14,3,3,pants); R(7,14,3,3,pants);
+    R(face>0?8:1,3,1,1,'#241a16');
+    return;
+  }
+  let by=6, split=0, up=false;
+  if(st==='run'){ split=fr===1?2:-2; by+=(fr===1?0:1); }
+  if(st==='jump'||st==='fall'||st==='dash') up=true;
+  if(st==='dash'){
+    R(face>0?-6:10,6,6,7,'rgba(255,255,255,0.35)');
+  }
+  R(2+Math.max(0,split),13,3,4,pants);
+  R(6+Math.min(0,split),13,3,4,pants);
+  R(2,by,8,8,shirt); R(2,by+6,8,2,shirtD);
+  if(up){ R(0,by-4,2,6,skin); R(10,by-4,2,6,skin); }
+  else { R(0,by+1,2,6,skin); R(10,by+1,2,6,skin); }
+  R(3,-1,7,7,skin); R(2,-2,9,3,hair);
+  R(face>0?8:3,2,1,1,'#241a16');
+}
+
+/* ===========================================================================
+   INPUT
+   =========================================================================== */
+const keys={}; let justK={};
+const held={left:false,right:false,jump:false,act:false};
+let edgeJump=false, edgeAct=false;
+window.addEventListener('keydown',e=>{
+  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code)) e.preventDefault();
+  if(!keys[e.code]) justK[e.code]=true;
+  keys[e.code]=true; anyKey();
+});
+window.addEventListener('keyup',e=>{keys[e.code]=false;});
+const kd=c=>!!keys[c], kj=c=>!!justK[c];
+function input(){
+  return {
+    left: kd('ArrowLeft')||kd('KeyA')||held.left,
+    right:kd('ArrowRight')||kd('KeyD')||held.right,
+    up:   kd('ArrowUp')||kd('KeyW'),
+    down: kd('ArrowDown')||kd('KeyS'),
+    jump: kd('Space')||kd('KeyZ')||held.jump,
+    jumpE:kj('Space')||kj('KeyZ')||edgeJump,
+    act:  kd('ShiftLeft')||kd('ShiftRight')||kd('KeyX')||kd('KeyK')||held.act,
+    actE: kj('ShiftLeft')||kj('ShiftRight')||kj('KeyX')||kj('KeyK')||edgeAct
+  };
+}
+function bind(id,prop,edge){
+  const el=document.getElementById(id);
+  const on=e=>{e.preventDefault();held[prop]=true;if(edge==='j')edgeJump=true;if(edge==='a')edgeAct=true;anyKey();};
+  const off=e=>{e.preventDefault();held[prop]=false;};
+  ['touchstart','mousedown'].forEach(ev=>el.addEventListener(ev,on));
+  ['touchend','touchcancel','mouseup','mouseleave'].forEach(ev=>el.addEventListener(ev,off));
+}
+bind('bL','left'); bind('bR','right'); bind('bJ','jump','j'); bind('bK','act','a');
+canvas.addEventListener('mousedown',anyKey);
+canvas.addEventListener('touchstart',anyKey);
+
+/* audio */
+let actx=null, muted=false;
+function sfx(f,d,type,v,slide){
+  if(muted) return;
+  try{
+    if(!actx) actx=new (window.AudioContext||window.webkitAudioContext)();
+    const o=actx.createOscillator(), g=actx.createGain();
+    o.type=type||'square'; o.frequency.setValueAtTime(f,actx.currentTime);
+    if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(40,f*slide),actx.currentTime+d);
+    g.gain.setValueAtTime(v||0.05,actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0008,actx.currentTime+d);
+    o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime+d);
+  }catch(e){}
+}
+
+/* ===========================================================================
+   PLAYER + PHYSICS
+   =========================================================================== */
+const GRAV=1150, MAXFALL=520, RUN=118, JUMP=-392, JUMP_MIN=-340;
+const COYOTE=0.1, BUFFER=0.12;
+const DASH_SPD=320, DASH_TIME=0.17;
+
+const player={
+  x:0,y:0,w:11,h:17,vx:0,vy:0,
+  onGround:false, face:1, st:'idle', animT:0, fr:1,
+  coyote:0, buf:0, invuln:0, hearts:3,
+  dash:0, dashT:0, dashVX:0, dashVY:0, dashCool:0,
+  grabbing:false, stamina:1,
+  safe:{x:0,y:0}, dead:false
+};
+
+let platforms=[], hazards=[], parts=[], stage=0;
+let camTarget={x:0,y:0,zoom:1};
