@@ -820,7 +820,7 @@ function onLand(p){
    grease (low friction) + flakes that crumble a beat after you land
    =========================================================================== */
 const STAGES=[
-  {name:'THE ROLL PARATHA', sub:'stage one', ability:'none',
+  {name:'JAMBO ROLL PARATHA', sub:'stage one', ability:'none',
    zoom:1.0, bounds:{x0:-250,x1:250,y0:1180,y1:5450},
    start:{x:-30,y:4930}, finish:1430,
    tip:'the flakes crumble - keep moving'},
@@ -1144,6 +1144,7 @@ function startPlay(st){
   buffs.jump2=0; buffs.slow=0;
   if(st===0) buildStage1(); else if(st===1) buildStage2(); else buildStage3();
   platforms.sort((a,b)=>b.y-a.y);
+  anchorPowerups();
   player.x=S.start.x; player.y=S.start.y;
   player.vx=0; player.vy=0; player.hearts=3; player.invuln=1;
   player.dashLeft=1; player.dashT=0; player.jump2Left=0;
@@ -1393,7 +1394,7 @@ function updatePlay(dt,inp){
   }
 
   /* ---- fell out of the world ---- */
-  if(player.y > camAnchor + 330){
+  if(player.y > S.bounds.y1 - 24){
     player.hearts--;
     sfx(140,.4,'square',.06,0.4);
     if(player.hearts<=0){ state='dead'; }
@@ -1406,13 +1407,16 @@ function updatePlay(dt,inp){
     else { state='win'; sfx(660,.12,'square',.06,1.6); }
   }
 
-  /* ---- camera ---- */
+  /* ---- camera: follows both ways, and hurries when you are falling ---- */
   if(player.onGround||player.grabbing) camAnchor=Math.min(camAnchor,player.y);
   const halfW=W/2/cam.zoom, halfH=H/2/cam.zoom;
   const tx=clamp(player.x, S.bounds.x0+halfW, Math.max(S.bounds.x0+halfW, S.bounds.x1-halfW));
   cam.x=lerp(cam.x,tx,1-Math.pow(0.002,dt));
-  const tyc=clamp(camAnchor-40, S.bounds.y0+halfH, Math.max(S.bounds.y0+halfH,S.bounds.y1-halfH));
-  if(tyc<cam.y) cam.y=lerp(cam.y,tyc,1-Math.pow(0.0015,dt));
+  const ty=clamp(player.y-40, S.bounds.y0+halfH, Math.max(S.bounds.y0+halfH,S.bounds.y1-halfH));
+  // chase harder downward so a long fall never leaves the climber off screen
+  const falling = ty>cam.y;
+  const k = falling ? 0.000004 : 0.0015;
+  cam.y=lerp(cam.y,ty,1-Math.pow(k,dt));
   cam.zoom=lerp(cam.zoom,S.zoom,1-Math.pow(0.05,dt));
 }
 let standingOn=null, hazTimer=1, camAnchor=0, tipT=0;
@@ -1476,6 +1480,24 @@ function drawRazorSweep(){
 }
 
 /* ---- collectibles ---- */
+/* Pin each collectible to the nearest real ledge, so none of them float
+   somewhere the climber can never reach. */
+function anchorPowerups(){
+  const stand=platforms.filter(q=>q.type!=='hairwall');
+  for(const pu of powerups){
+    let best=null, bestD=Infinity;
+    for(const q of stand){
+      const d=Math.abs(q.y-pu.y);
+      if(d<bestD){ bestD=d; best=q; }
+    }
+    if(best){
+      pu.x = best.x + best.w/2;
+      pu.y = best.y - 20;
+      pu.onLedge = best;
+    }
+  }
+}
+
 function drawPowerups(){
   for(const pu of powerups){
     if(pu.taken || !onScreen(pu.x,pu.y,40)) continue;
@@ -1798,7 +1820,9 @@ window.__dbg={
   step(dt){ update(dt); render(); },
   cam, pose, player,
   get state(){return state;},
-  get platforms(){return platforms;}
+  get platforms(){return platforms;},
+  get powerups(){return powerups;},
+  get hairWalls(){return hairWalls;}
 };
 })();
 </script>
