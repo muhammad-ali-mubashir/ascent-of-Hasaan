@@ -65,10 +65,10 @@ function hash(n){const s=Math.sin(n*127.1)*43758.5453;return s-Math.floor(s);}
 /* origin: between the eyes. +y is down. units are "face pixels" (FP).        */
 const A={
   cranTop:-2050, hairTop:-2780, hairSideW:1560,
-  hairline:-1310, brow:-620, eyeY:0, eyeDX:555, eyeRX:300, eyeRY:166,
-  noseTop:-150, noseBase:640, noseHalfW:220,
+  hairline:-1150, brow:-540, eyeY:0, eyeDX:540, eyeRX:286, eyeRY:138,
+  noseTop:-170, noseBase:700, noseHalfW:242,
   lipY:1015, mouthHalfW:430,
-  chin:1935, jawHalfW:1130, headHalfW:1255,
+  chin:2010, jawHalfW:1035, headHalfW:1185,
   neck:2180, shoulder:2720,
   earY:150
 };
@@ -153,64 +153,69 @@ function drawEar(side){
   fEll(x-side*6, A.earY-20, 44, 80, 0, P.skinDeep);
 }
 
-/* ---- hair: big curly volume. LOD-aware so it reads tiny or huge ---- */
-function drawHair(back){
-  const detail = cam.zoom>0.22;
-  if(back){
-    ctx.beginPath();
-    pM(-A.hairSideW, -300);
-    pC(-A.hairSideW-60, -1700, -1000, A.hairTop-120, 0, A.hairTop-90);
-    pC(1000, A.hairTop-120, A.hairSideW+60, -1700, A.hairSideW, -300);
-    pC(A.hairSideW-60, 120, 1100, -200, 900, -900);
-    pL(-900,-900);
-    pC(-1100,-200,-(A.hairSideW-60),120,-A.hairSideW,-300);
-    ctx.closePath(); fill(P.hairDeep);
-    return;
-  }
-  // main mass
-  ctx.beginPath();
-  pM(-1440, -560);
-  pC(-1520, -1800, -980, A.hairTop, 0, A.hairTop);
-  pC(980, A.hairTop, 1520, -1800, 1440, -560);
-  pC(1300, -980, 980, A.hairline-150, 540, A.hairline+40);   // right hairline
-  pC(240, A.hairline-70, -240, A.hairline-70, -540, A.hairline+40);
-  pC(-980, A.hairline-150, -1300, -980, -1440, -560);
-  ctx.closePath(); fill(P.hair);
+/* ---- hair: thick curls. The curls ARE the silhouette, so it reads curly
+        whether the head is 20px tall or filling the screen. ---- */
+const HAIR={cx:0, cy:-1560, rx:1215, ry:900};
 
-  if(!detail){
-    ctx.save();
-    ctx.beginPath();
-    pM(-1440,-560);
-    pC(-1520,-1800,-980,A.hairTop,0,A.hairTop);
-    pC(980,A.hairTop,1520,-1800,1440,-560);
-    pC(1300,-980,980,A.hairline-150,540,A.hairline+40);
-    pC(240,A.hairline-70,-240,A.hairline-70,-540,A.hairline+40);
-    pC(-980,A.hairline-150,-1300,-980,-1440,-560);
-    ctx.closePath(); ctx.clip();
-    const hg=ctx.createLinearGradient(0,SY(A.hairTop),0,SY(A.hairline));
-    hg.addColorStop(0,P.hairMid); hg.addColorStop(0.45,P.hair); hg.addColorStop(1,P.hairDeep);
-    ctx.fillStyle=hg; ctx.fillRect(0,0,W,H);
-    fEll(-620,A.hairTop+560,540,420,-0.3,'rgba(80,64,52,0.30)');
-    fEll( 560,A.hairTop+700,460,380, 0.3,'rgba(80,64,52,0.22)');
-    ctx.restore();
+/* deterministic curl placement: rings around the scalp, densest at the edge */
+function eachCurl(cb){
+  const rings = cam.zoom>0.11 ? 5 : 3;
+  for(let ring=0; ring<rings; ring++){
+    const rr = 1 - ring*0.19;
+    const n  = Math.max(5, 20 - ring*3);
+    for(let i=0;i<n;i++){
+      const t = n===1?0.5:i/(n-1);
+      const a = Math.PI*0.80 + t*Math.PI*1.40;         // wraps past the temples
+      const j = hash(ring*31.7+i*3.3)*0.075-0.037;
+      const rx = HAIR.rx*rr, ry = HAIR.ry*rr;
+      const x = HAIR.cx + Math.cos(a+j)*rx;
+      const y = HAIR.cy + Math.sin(a+j)*ry;
+      // keep the forehead clear, but let hair fall at the temples
+      if(y > A.hairline-110 && Math.abs(x) < 790) continue;
+      if(y > -90) continue;
+      const r = (108 + hash(ring*11.3+i*7.1)*62) * (ring===0?1:0.88);
+      cb(x, y, r, ring*37+i);
+    }
+  }
+}
+
+function drawHair(back){
+  if(back){
+    fEll(HAIR.cx, HAIR.cy+120, HAIR.rx*0.98, HAIR.ry*0.98, 0, P.hairDeep);
     return;
   }
-  // curls: only those on screen
-  for(let cx=-1500; cx<=1500; cx+=118){
-    for(let cy=A.hairTop-60; cy<A.hairline+120; cy+=112){
-      const n=Math.floor(cx*0.013+cy*0.021)*7.3;
-      const ox=cx+hash(n)*90-45, oy=cy+hash(n+2)*80-40;
-      // stay inside the hair mass
-      const ny=(oy-A.hairTop)/(A.hairline-A.hairTop);
-      const halfW=lerp(980,1460,clamp(ny*1.5,0,1));
-      if(Math.abs(ox)>halfW) continue;
-      if(oy>A.hairline-60 && Math.abs(ox)<620) continue;      // keep the forehead clear
-      if(!onScreen(ox,oy,120)) continue;
-      const r=78+hash(n+5)*52;
-      const v=hash(n+9);
-      fCircle(ox,oy,r, v>0.72?P.hairHi : (v>0.4?P.hairMid:P.hair));
-      if(v>0.86) fCircle(ox-r*0.3, oy-r*0.3, r*0.4, P.hairHi);
-    }
+  // under-mass so no scalp shows between curls
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(SX(HAIR.cx),SY(HAIR.cy),Math.max(1,SS(HAIR.rx)),Math.max(1,SS(HAIR.ry)),0,0,6.2832);
+  ctx.rect(SX(-HAIR.rx),SY(A.hairline-30),Math.max(1,SS(HAIR.rx*2)),Math.max(1,SS(10)));
+  ctx.clip();
+  fEll(HAIR.cx,HAIR.cy,HAIR.rx,HAIR.ry,0,P.hair);
+  ctx.restore();
+
+  // the curls themselves
+  eachCurl((x,y,r,n)=>{
+    if(!onScreen(x,y,r+30)) return;
+    const v=hash(n*1.7);
+    fCircle(x,y,r, v>0.74?P.hairMid : (v>0.40?P.hair:P.hairDeep));
+  });
+  // highlights so the curls have form
+  if(cam.zoom>0.05){
+    eachCurl((x,y,r,n)=>{
+      if(hash(n*2.9)<0.62) return;
+      if(!onScreen(x,y,r)) return;
+      const a=hash(n*4.3)*6.2832;                    // scatter so curls don't chain up
+      fCircle(x+Math.cos(a)*r*0.30, y+Math.sin(a)*r*0.30, r*0.30+hash(n*6.7)*r*0.12, P.hairHi);
+    });
+  }
+  // a curly fringe along the hairline instead of a drawn-on edge
+  for(let fx=-980; fx<=980; fx+=118){
+    const n=Math.floor(fx*0.021)*4.7;
+    const fy=A.hairline - 150 + hash(n)*70 + Math.pow(Math.abs(fx)/980,2)*210;
+    if(!onScreen(fx,fy,150)) continue;
+    const r=88+hash(n+3)*46;
+    fCircle(fx+hash(n+1)*54-27, fy, r, hash(n+5)>0.6?P.hair:P.hairDeep);
+    if(hash(n+7)>0.5) fCircle(fx-r*0.2, fy-r*0.25, r*0.38, P.hairMid);
   }
 }
 
@@ -218,8 +223,8 @@ function drawHair(back){
 function beardTop(x){
   // top edge of the beard: sideburn (high, by the ear) -> cheek -> just under the lip
   const t=clamp(Math.abs(x)/A.headHalfW,0,1);
-  if(Math.abs(x)<A.mouthHalfW+60) return A.lipY+150;
-  return lerp(A.lipY+150, 150, Math.pow((t-0.34)/0.66, 0.78));
+  if(Math.abs(x)<A.mouthHalfW+60) return A.lipY+160;
+  return lerp(A.lipY+160, 430, Math.pow((t-0.34)/0.66, 0.78));
 }
 function beardPath(){
   ctx.beginPath();
