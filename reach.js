@@ -27,7 +27,7 @@ const {chromium}=require('playwright');
         for(const a of ledges){
           if(a===c) continue;
           const dv=a.y-c.y;                       // a is below c
-          if(dv<=0 || dv>vLimit) continue;
+          if(dv<-10 || dv>vLimit) continue;   // same-height sideways jumps count too
           let dh=0;
           if(c.x>a.x+a.w) dh=c.x-(a.x+a.w);
           else if(c.x+c.w<a.x) dh=a.x-(c.x+c.w);
