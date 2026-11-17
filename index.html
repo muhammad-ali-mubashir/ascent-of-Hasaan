@@ -794,42 +794,49 @@ let razor=null, razorWarn=0, razorTimer=6;
 let idleT=0, eggMsg='', eggMsgT=0;
 let cutRazor=null;   // the razor as a cutscene prop
 
+/* Reachability helper: place the next ledge so its nearest edge is within
+   `maxGap` of the previous ledge's span. Guarantees the climb is possible. */
+function placeX(prev, w, maxGap, x0, x1){
+  const lo = prev.x - w - maxGap;
+  const hi = prev.x + prev.w + maxGap;
+  return clamp(rnd(lo,hi), x0, Math.max(x0, x1-w));
+}
+
 function buildStage1(){
-  const S=STAGES[0];
-  platforms.push({x:-ROLL.r,y:5010,w:ROLL.r*2,h:40,type:'roll'});
-  let y=5010, px=0;
+  const S=STAGES[0], x0=-ROLL.r+8, x1=ROLL.r-8;
+  let prev={x:-ROLL.r,y:5010,w:ROLL.r*2};
+  platforms.push({x:prev.x,y:prev.y,w:prev.w,h:40,type:'roll'});
+  let y=5010;
   while(y>S.finish+60){
-    y -= rnd(42,50);
-    const w=rnd(62,120);
-    let nx=clamp(px+rnd(-110,110), -ROLL.r+10, ROLL.r-w-10);
-    px=nx+w/2;
+    y -= rnd(38,46);
+    const w=rnd(64,118);
+    const nx=placeX(prev,w,54,x0,x1);
     let type='flake';
     const r=Math.random();
-    if(r<0.30) type='crumble'; else if(r<0.42) type='grease';
-    platforms.push({x:nx,y:y,w:w,h:12,type:type});
-    if(Math.random()<0.22){
-      const w2=rnd(50,80);
-      const x2=(nx<0)?rnd(30,ROLL.r-w2-10):rnd(-ROLL.r+10,-70);
-      platforms.push({x:x2,y:y-rnd(8,20),w:w2,h:12,type:Math.random()<0.3?'crumble':'flake'});
+    if(r<0.28) type='crumble'; else if(r<0.40) type='grease';
+    const pl={x:nx,y:y,w:w,h:12,type:type};
+    platforms.push(pl); prev=pl;
+    if(Math.random()<0.20){
+      const w2=rnd(50,78);
+      platforms.push({x:placeX(pl,w2,46,x0,x1),y:y-rnd(10,18),w:w2,h:12,
+                      type:Math.random()<0.3?'crumble':'flake'});
     }
   }
-  for(let i=0;i<4;i++){
-    const fy=HAND.y+70+i*135;
-    platforms.push({x:-ROLL.r-210,y:fy,w:ROLL.r*2+420,h:26,type:'finger'});
-  }
+  for(let i=0;i<4;i++)
+    platforms.push({x:-ROLL.r-210,y:HAND.y+70+i*135,w:ROLL.r*2+420,h:26,type:'finger'});
   powerups.push({x:120,y:4250,type:'ball'});
   powerups.push({x:-150,y:2600,type:'laptop'});
   powerups.push({x:60,y:1750,type:'badge'});
 }
 
-/* ---- STAGE 2: the beard. tufts to stand on, hair walls to grip ---- */
+/* ---- STAGE 2: the beard. every tier is jumpable; hair walls are shortcuts ---- */
 function buildStage2(){
   const S=STAGES[1];
-  platforms.push({x:-340,y:1960,w:680,h:40,type:'chin'});
-  let y=1960, px=0;
+  let prev={x:-340,y:1960,w:680};
+  platforms.push({x:prev.x,y:prev.y,w:prev.w,h:40,type:'chin'});
+  let y=1960, since=0;
   while(y>S.finish+70){
-    y -= rnd(46,56);
-    // the beard narrows as it climbs toward the sideburns
+    y -= rnd(40,48);
     const t=clamp((1960-y)/2200,0,1);
     const half=lerp(1050, 700, t);
     const w=rnd(70,130);
