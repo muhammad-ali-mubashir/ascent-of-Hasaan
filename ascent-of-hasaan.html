@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>The Ascent of Hasaan</title>
+<title>The Ascent of Hasaan Hamees</title>
 <style>
   *{box-sizing:border-box;}
   html,body{
@@ -824,7 +824,7 @@ const STAGES=[
    zoom:1.0, bounds:{x0:-250,x1:250,y0:1180,y1:5450},
    start:{x:-30,y:4930}, finish:1430,
    tip:'the flakes crumble - keep moving'},
-  {name:'THE BEARD', sub:'stage two', ability:'grab',
+  {name:'KHAT MASTER', sub:'stage two', ability:'grab',
    zoom:1.0, bounds:{x0:-1180,x1:1180,y0:-300,y1:2120},
    start:{x:-40,y:1900}, finish:-220,
    tip:'X grips the hair - stamina drains, and the razor is coming'},
@@ -1732,7 +1732,7 @@ function drawCutUI(){
   if(outro>0){ ctx.fillStyle='rgba(0,0,0,'+outro+')'; ctx.fillRect(0,0,W,H); }
   ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(0,0,W,26); ctx.fillRect(0,H-26,W,26);
   ctx.fillStyle='#cfd6e0'; ctx.font='8px monospace'; ctx.textAlign='center';
-  const L=['he reaches for the roll paratha...','the razor comes out...','and now, the forehead.'];
+  const L=['he reaches for the roll paratha...','khat master at work...','and now, the forehead.'];
   if(cutT>0.8 && cutT<end-1) ctx.fillText(L[cutStage], W/2, H-10);
   if(cutT>1.4) { ctx.fillStyle='#6b7a8c'; ctx.font='7px monospace'; ctx.fillText('any key to skip', W/2, 17); }
   ctx.textAlign='left';
@@ -1744,7 +1744,7 @@ function drawTitle(){
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
   ctx.textAlign='center';
   ctx.fillStyle='#ffd95e'; ctx.font='17px monospace';
-  ctx.fillText('THE ASCENT',W/2,34); ctx.fillText('OF HASAAN',W/2,54);
+  ctx.fillText('THE ASCENT OF',W/2,34); ctx.fillText('HASAAN HAMEES',W/2,54);
   ctx.fillStyle='#cfd6e0'; ctx.font='8px monospace';
   ctx.fillText('a climb in three courses',W/2,72);
   ctx.fillStyle='#fff'; ctx.font='9px monospace';
