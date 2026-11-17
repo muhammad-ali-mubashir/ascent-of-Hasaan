@@ -1,12 +1,12 @@
-# The Ascent of Hasaan
+# The Ascent of Hasaan Hamees
 
 A 2D pixel-art climbing game built for a friend. You play a tiny climber scaling
-Hasaan himself, in three stages.
+Hasaan Hameed himself, in three stages.
 
 | Stage | Where | Signature mechanic |
 |------:|-------|--------------------|
-| 1 | **The Roll Paratha** | greasy platforms + flakes that crumble a beat after you land |
-| 2 | **The Beard** | wall-grab and climb, with stamina — while a razor shears your handholds away |
+| 1 | **Jambo Roll Paratha** | greasy platforms + flakes that crumble a beat after you land |
+| 2 | **Khat Master** | wall-grab and climb, with stamina — while a razor shears your handholds away |
 | 3 | **The Forehead** | air-dash across smooth skin + brow ridges that rise and fall |
 
 Everything is drawn procedurally in a single "face-space" coordinate system, so the
