@@ -1083,10 +1083,13 @@ function startPlay(st){
   player.dashLeft=1; player.dashT=0; player.jump2Left=0;
   player.stamina=1; player.grabbing=false; player.dead=false;
   player.safe={x:player.x,y:player.y};
-  cam.zoom=S.zoom;
-  cam.x=player.x; cam.y=player.y-60;
-  banner=S.name; bannerT=2.4;
-  hazards=[]; parts=[];
+  camAnchor=player.y;
+  cam.zoom=S.zoom; cam.x=player.x; cam.y=player.y-60;
+  banner=S.name; bannerT=2.6; tipT=4.2;
+  pose.foam = st===1?0.42:0;
+  pose.beardCut = 0;
+  pose.sweat = st===2?0.65:0;
+  idleT=0;
 }
 
 function anyKey(){
@@ -1111,142 +1114,374 @@ function hurt(fromX){
 function updatePlay(dt,inp){
   const S=STAGES[stage];
   if(player.invuln>0) player.invuln-=dt;
-  if(player.dashCool>0) player.dashCool-=dt;
+  if(buffs.jump2>0) buffs.jump2-=dt;
+  if(buffs.slow>0) buffs.slow-=dt;
+  if(eggMsgT>0) eggMsgT-=dt;
+  if(tipT>0) tipT-=dt;
 
-  /* ---- dash (stage 3 ability) ---- */
+  // idle easter egg
+  if(Math.abs(player.vx)<4 && player.onGround && !inp.left && !inp.right){ idleT+=dt; }
+  else idleT=0;
+  if(idleT>14){ eggMsg='you gonna climb or what'; eggMsgT=3.4; idleT=-18; }
+
+  // his brows drive stage 3's ridges
+  browPhase += dt*0.85;
+  browVal = (Math.sin(browPhase)+1)/2;
+  if(stage===2) pose.brow = browVal;
+  if(stage===0){ // he keeps eating while you climb
+    pose.chew = (Math.sin(gameT*1.5)>0.4) ? 0.5 : 0;
+    pose.jaw  = pose.chew? 0.1+Math.abs(Math.sin(gameT*7))*0.12 : 0;
+  }
+
+  /* ================= movement ================= */
+  const canGrab = S.ability==='grab';
+  const canDash = S.ability==='dash';
+
+  // --- wall grab (stage 2) ---
+  let touching=null;
+  if(canGrab){
+    for(const w of hairWalls){
+      if(w.shorn>0) continue;
+      if(player.y+player.h<w.y || player.y>w.y+w.h) continue;
+      if(Math.abs((player.x+player.w)-w.x)<5 && inp.right) touching=w;
+      if(Math.abs(player.x-(w.x+w.w))<5 && inp.left) touching=w;
+      if(player.x+player.w>w.x-4 && player.x<w.x+w.w+4) touching=w;
+    }
+  }
+  if(canGrab && touching && inp.act && player.stamina>0 && player.dashT<=0){
+    player.grabbing=true;
+    player.vx=0; player.vy=0;
+    player.x = (player.x+player.w/2 < touching.x+touching.w/2)
+             ? touching.x-player.w : touching.x+touching.w;
+    if(inp.up){ player.y-=52*dt; player.stamina-=dt*0.55; }
+    else if(inp.down){ player.y+=74*dt; player.stamina-=dt*0.2; }
+    else player.stamina-=dt*0.34;
+    player.face = (player.x < touching.x) ? 1 : -1;
+    if(player.stamina<=0){ player.grabbing=false; player.stamina=0; }
+  } else player.grabbing=false;
+  if(player.onGround) player.stamina=Math.min(1,player.stamina+dt*1.6);
+
   if(player.dashT>0){
     player.dashT-=dt;
     player.vx=player.dashVX; player.vy=player.dashVY;
-    if(player.dashT<=0){ player.vx*=0.45; player.vy*=0.35; }
-  } else {
-    /* ---- horizontal ---- */
+    if(player.dashT<=0){ player.vx*=0.55; player.vy*=0.3; }
+    parts.push({x:player.x+5,y:player.y+8,vx:rnd(-20,20),vy:rnd(-20,20),life:.25,c:'#bff6ff'});
+  } else if(!player.grabbing){
     const onGrease = player.onGround && standingOn && standingOn.type==='grease';
-    const accel = player.onGround ? (onGrease?0.07:0.32) : 0.13;
-    const decel = player.onGround ? (onGrease?0.035:0.4) : 0.055;
+    const accel = player.onGround ? (onGrease?0.07:0.33) : 0.14;
+    const decel = player.onGround ? (onGrease?0.035:0.42) : 0.06;
     let ax=0;
     if(inp.left) ax-=1;
     if(inp.right) ax+=1;
     if(ax!==0){ player.face=ax; player.vx=lerp(player.vx, ax*RUN, accel); }
     else player.vx=lerp(player.vx,0,decel);
-
     player.vy += GRAV*dt;
     player.vy = Math.min(player.vy, MAXFALL);
   }
 
-  /* ---- jump ---- */
+  /* ---- dash (stage 3, or anywhere once you grab the ball? no: stage ability) ---- */
+  if(canDash && inp.actE && player.dashLeft>0 && player.dashT<=0){
+    let dx=(inp.right?1:0)-(inp.left?1:0);
+    let dy=(inp.down?1:0)-(inp.up?1:0);
+    if(dx===0&&dy===0) dx=player.face;
+    const L=Math.hypot(dx,dy)||1;
+    player.dashVX=dx/L*DASH_SPD; player.dashVY=dy/L*DASH_SPD;
+    player.dashT=DASH_TIME; player.dashLeft--;
+    player.invulnDash=0.1;
+    sfx(820,.14,'square',.05,0.5);
+  }
+
+  /* ---- jump (plus the basketball's double jump) ---- */
   if(inp.jumpE) player.buf=BUFFER;
   if(player.buf>0) player.buf-=dt;
   if(player.onGround) player.coyote=COYOTE; else if(player.coyote>0) player.coyote-=dt;
-  if(player.buf>0 && player.coyote>0 && player.dashT<=0){
-    player.vy=JUMP; player.onGround=false; player.coyote=0; player.buf=0;
-    sfx(620,.09,'square',.045,1.8);
+  if(player.buf>0 && player.dashT<=0){
+    if(player.grabbing){                       // leap off the hair
+      player.vy=JUMP*0.95; player.vx=-player.face*RUN*1.1;
+      player.grabbing=false; player.buf=0; player.stamina-=0.12;
+      sfx(560,.1,'square',.05,1.7);
+    } else if(player.coyote>0){
+      player.vy=JUMP; player.onGround=false; player.coyote=0; player.buf=0;
+      sfx(620,.09,'square',.045,1.8);
+    } else if(buffs.jump2>0 && player.jump2Left>0){
+      player.vy=JUMP*0.92; player.jump2Left--; player.buf=0;
+      sfx(760,.12,'square',.05,1.6);
+      for(let i=0;i<7;i++) parts.push({x:player.x+5,y:player.y+16,vx:rnd(-70,70),vy:rnd(10,60),life:.4,c:'#ffa94d'});
+    }
   }
-  if(!inp.jump && player.vy<JUMP_MIN) player.vy=JUMP_MIN;
+  if(!inp.jump && player.vy<JUMP_MIN && player.dashT<=0) player.vy=JUMP_MIN;
 
-  /* ---- move + collide ---- */
+  /* ================= move + collide ================= */
   const prevBottom=player.y+player.h;
-  player.x += player.vx*dt;
-  player.x = clamp(player.x, S.bounds.x0, S.bounds.x1-player.w);
-  player.y += player.vy*dt;
+  if(!player.grabbing){
+    player.x += player.vx*dt;
+    player.x = clamp(player.x, S.bounds.x0, S.bounds.x1-player.w);
+    player.y += player.vy*dt;
+  }
+  wasAir=!player.onGround;
   player.onGround=false;
   standingOn = tryLand(prevBottom);
+  if(player.onGround){
+    player.dashLeft=1;
+    player.jump2Left = buffs.jump2>0 ? 1 : 0;
+  }
 
-  /* ---- animation ---- */
-  let st='idle';
-  if(player.dashT>0) st='dash';
-  else if(!player.onGround) st=player.vy<0?'jump':'fall';
-  else if(Math.abs(player.vx)>14) st='run';
-  player.st=st; player.animT+=dt;
-  const rate=st==='run'?0.1:0.3;
+  /* ================= animation ================= */
+  let st2='idle';
+  if(player.grabbing) st2='grab';
+  else if(player.dashT>0) st2='dash';
+  else if(!player.onGround) st2=player.vy<0?'jump':'fall';
+  else if(stage===2 && Math.abs(player.vx)>14) st2='crawl';
+  else if(Math.abs(player.vx)>14) st2='run';
+  player.st=st2; player.animT+=dt;
+  const rate=(st2==='run'||st2==='crawl')?0.1:0.3;
   if(player.animT>rate){ player.animT=0; player.fr=player.fr===1?2:1; }
 
-  /* ---- crumbling platforms ---- */
-  for(const p of platforms){
-    if(p.type==='crumble' && p.timer!==undefined && !p.gone){
-      p.timer-=dt;
-      if(p.timer<=0){
-        p.gone=true; p.respawn=3.2; p.timer=undefined;
+  /* ================= stage furniture ================= */
+  for(const pl of platforms){
+    if(pl.type==='crumble' && pl.timer!==undefined && !pl.gone){
+      pl.timer-=dt;
+      if(pl.timer<=0){
+        pl.gone=true; pl.respawn=3.2; pl.timer=undefined;
         sfx(240,.18,'sawtooth',.04,0.5);
-        for(let i=0;i<7;i++) parts.push({x:p.x+rnd(0,p.w),y:p.y,vx:rnd(-50,50),vy:rnd(20,90),life:.7,c:P.parDk});
+        for(let i=0;i<7;i++) parts.push({x:pl.x+rnd(0,pl.w),y:pl.y,vx:rnd(-50,50),vy:rnd(20,90),life:.7,c:P.parDk});
       }
     }
-    if(p.gone){
-      p.respawn-=dt;
-      if(p.respawn<=0 && !(player.x+player.w>p.x&&player.x<p.x+p.w&&Math.abs(player.y+player.h-p.y)<24)){
-        p.gone=false;
-      }
+    if(pl.gone && pl.respawn!==undefined){
+      pl.respawn-=dt;
+      if(pl.respawn<=0 && !(player.x+player.w>pl.x&&player.x<pl.x+pl.w&&Math.abs(player.y+player.h-pl.y)<24)) pl.gone=false;
+    }
+    if(pl.type==='wrinkle'){
+      if(pl.amp>0) pl.y = pl.baseY - browVal*pl.amp*2 + pl.amp;
+      if(pl.appear) pl.gone = browVal<0.42;
+    }
+    if(pl.type==='hairwall' && pl.shorn>0){
+      pl.shorn-=dt; pl.gone = pl.shorn>0;
     }
   }
 
-  /* ---- hazards: bits falling from the bite ---- */
+  /* ---- the razor (stage 2) ---- */
+  if(stage===1){
+    if(!razor){
+      razorTimer-=dt;
+      if(razorTimer<=4.2 && razorWarn<=0 && razorTimer>0){ razorWarn=1; sfx(300,.5,'sawtooth',.028,1.5); }
+      if(razorTimer<=0){
+        const dir=Math.random()<0.5?1:-1;
+        razor={x: dir>0?-1400:1400, y: player.y-rnd(-40,120), dir, spd:rnd(300,420)};
+        razorWarn=0;
+      }
+    } else {
+      razor.x += razor.dir*razor.spd*dt;
+      pose.beardCut = Math.min(0.55, pose.beardCut+dt*0.02);
+      for(const w of hairWalls){
+        if(w.shorn>0) continue;
+        if(Math.abs(w.x-razor.x)<60 && razor.y>w.y-60 && razor.y<w.y+w.h+60){
+          w.shorn=6.5; w.gone=true;
+          for(let i=0;i<9;i++) hazards.push({x:w.x+rnd(0,w.w),y:w.y+rnd(0,w.h),
+            vx:rnd(-40,40),vy:rnd(30,90),rot:rnd(0,6),spin:rnd(-4,4),r:6,type:'hairclump'});
+        }
+      }
+      if(player.invuln<=0 && Math.abs(razor.x-(player.x+5))<70 && Math.abs(razor.y-(player.y+8))<42) hurt(razor.x);
+      if(razor.x<-1500||razor.x>1500){ razor=null; razorTimer=rnd(5,8); }
+    }
+  }
+
+  /* ---- falling hazards ---- */
   hazTimer-=dt;
   if(hazTimer<=0){
-    hazTimer=rnd(0.55,1.0);
+    hazTimer = stage===0?rnd(0.6,1.05) : stage===1?rnd(1.1,1.9) : rnd(0.75,1.3);
     spawnFallingBit();
   }
+  const slowMul = buffs.slow>0?0.42:1;
   for(let i=hazards.length-1;i>=0;i--){
     const h=hazards[i];
-    h.vy=Math.min(h.vy+520*dt, 620);
-    h.x+=h.vx*dt; h.y+=h.vy*dt; h.rot+=h.spin*dt;
-    if(h.y>player.y+500){ hazards.splice(i,1); continue; }
-    if(player.invuln<=0 && Math.abs(h.x-(player.x+player.w/2))<h.r+7 && Math.abs(h.y-(player.y+player.h/2))<h.r+9){
+    h.vy=Math.min(h.vy+520*dt*slowMul, 620);
+    h.x+=h.vx*dt*slowMul; h.y+=h.vy*dt*slowMul; h.rot+=h.spin*dt*slowMul;
+    if(h.y>player.y+520){ hazards.splice(i,1); continue; }
+    if(player.invuln<=0 && player.dashT<=0 &&
+       Math.abs(h.x-(player.x+player.w/2))<h.r+7 && Math.abs(h.y-(player.y+player.h/2))<h.r+9){
       hurt(h.x); hazards.splice(i,1);
     }
   }
   for(let i=parts.length-1;i>=0;i--){
-    const p=parts[i]; p.life-=dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=420*dt;
-    if(p.life<=0) parts.splice(i,1);
+    const q=parts[i]; q.life-=dt; q.x+=q.vx*dt; q.y+=q.vy*dt; q.vy+=380*dt;
+    if(q.life<=0) parts.splice(i,1);
   }
 
-  /* ---- fell off the bottom ---- */
-  if(player.y > camAnchor + 300){
+  /* ---- power-ups ---- */
+  for(const pu of powerups){
+    if(pu.taken) continue;
+    if(Math.abs(pu.x-(player.x+5))<17 && Math.abs(pu.y-(player.y+8))<19){
+      pu.taken=true; collected[pu.type]++;
+      if(pu.type==='ball'){ buffs.jump2=15; player.jump2Left=1; eggMsg='DUNK: double jump'; }
+      if(pu.type==='laptop'){ buffs.slow=11; eggMsg='CODERING: everything slows'; }
+      if(pu.type==='badge'){
+        if(player.hearts<3){ player.hearts++; eggMsg='APImatic: build passing (+1)'; }
+        else { player.invuln=5; eggMsg='APImatic: deployed (shielded)'; }
+      }
+      eggMsgT=2.6;
+      sfx(880,.16,'square',.055,1.6);
+      for(let i=0;i<12;i++) parts.push({x:pu.x,y:pu.y,vx:rnd(-90,90),vy:rnd(-90,40),life:.55,
+        c:pu.type==='ball'?'#ef8a2b':(pu.type==='laptop'?'#6ee7a0':'#5aa9ea')});
+    }
+  }
+
+  /* ---- fell out of the world ---- */
+  if(player.y > camAnchor + 330){
     player.hearts--;
+    sfx(140,.4,'square',.06,0.4);
     if(player.hearts<=0){ state='dead'; }
-    else { player.x=player.safe.x; player.y=player.safe.y-12; player.vx=0; player.vy=0; player.invuln=1.2; }
+    else { player.x=player.safe.x; player.y=player.safe.y-12; player.vx=0; player.vy=0; player.invuln=1.3; }
   }
 
-  /* ---- reached the top of the stage ---- */
+  /* ---- stage cleared ---- */
   if(player.y < S.finish){
-    if(stage<2){ startCutscene(stage+1); }
-    else { state='win'; }
+    if(stage<2) startCutscene(stage+1);
+    else { state='win'; sfx(660,.12,'square',.06,1.6); }
   }
 
   /* ---- camera ---- */
-  if(player.onGround) camAnchor=Math.min(camAnchor,player.y);
-  const tx=clamp(player.x, S.bounds.x0+W/2/cam.zoom, S.bounds.x1-W/2/cam.zoom);
-  let ty=camAnchor-40;
+  if(player.onGround||player.grabbing) camAnchor=Math.min(camAnchor,player.y);
+  const halfW=W/2/cam.zoom, halfH=H/2/cam.zoom;
+  const tx=clamp(player.x, S.bounds.x0+halfW, Math.max(S.bounds.x0+halfW, S.bounds.x1-halfW));
   cam.x=lerp(cam.x,tx,1-Math.pow(0.002,dt));
-  const tyc=clamp(ty, S.bounds.y0+H/2/cam.zoom, S.bounds.y1-H/2/cam.zoom);
+  const tyc=clamp(camAnchor-40, S.bounds.y0+halfH, Math.max(S.bounds.y0+halfH,S.bounds.y1-halfH));
   if(tyc<cam.y) cam.y=lerp(cam.y,tyc,1-Math.pow(0.0015,dt));
   cam.zoom=lerp(cam.zoom,S.zoom,1-Math.pow(0.05,dt));
 }
-let standingOn=null, hazTimer=1, camAnchor=0;
+let standingOn=null, hazTimer=1, camAnchor=0, tipT=0;
 
 function spawnFallingBit(){
-  const x=clamp(player.x+rnd(-150,150), -ROLL.r-40, ROLL.r+40);
-  const kind=Math.random();
-  hazards.push({
-    x, y:cam.y-H/2/cam.zoom-30, vx:rnd(-25,25), vy:rnd(60,120),
-    rot:rnd(0,6), spin:rnd(-4,4), r:kind<0.6?9:7,
-    type: kind<0.6?'chunk':(kind<0.85?'crumb':'sauce')
-  });
+  const topY=cam.y-H/2/cam.zoom-30;
+  if(stage===0){
+    const x=clamp(player.x+rnd(-170,170), -ROLL.r+10, ROLL.r-10);
+    const k=Math.random();
+    hazards.push({x,y:topY,vx:rnd(-25,25),vy:rnd(60,120),rot:rnd(0,6),spin:rnd(-4,4),
+      r:k<0.6?9:7, type:k<0.6?'chunk':(k<0.85?'crumb':'sauce')});
+  } else if(stage===1){
+    const x=player.x+rnd(-260,260);
+    hazards.push({x,y:topY,vx:rnd(-30,30),vy:rnd(50,90),rot:rnd(0,6),spin:rnd(-3,3),
+      r:7,type:'hairclump'});
+  } else {
+    const x=player.x+rnd(-280,280);
+    const k=Math.random();
+    hazards.push({x,y:topY,vx:rnd(-16,16),vy:rnd(110,170),rot:rnd(0,6),spin:rnd(-2,2),
+      r:7,type:k<0.7?'sweat':'hairclump'});
+  }
 }
+
 function drawHazard(h){
   if(!onScreen(h.x,h.y,30)) return;
   ctx.save();
   ctx.translate(SX(h.x),SY(h.y)); ctx.rotate(h.rot);
   const s=SS(1);
   const R=(a,b,w,hh,c)=>{ctx.fillStyle=c;ctx.fillRect(a*s,b*s,Math.max(.6,w*s),Math.max(.6,hh*s));};
+  const C=(a,b,r,c)=>{ctx.fillStyle=c;ctx.beginPath();ctx.arc(a*s,b*s,Math.max(.5,r*s),0,6.2832);ctx.fill();};
   if(h.type==='chunk'){
-    R(-9,-7,18,14,P.parDk); R(-9,-7,18,5,P.par); R(-5,3,10,4,P.parChar);
-    R(2,-4,5,5,P.fillG);
+    R(-9,-7,18,14,P.parDk); R(-9,-7,18,5,P.par); R(-5,3,10,4,P.parChar); R(2,-4,5,5,P.fillG);
   } else if(h.type==='crumb'){
     R(-5,-4,10,8,P.par); R(-5,-4,10,3,P.parLt);
-  } else {
-    ctx.fillStyle=P.sauce; ctx.beginPath();
-    ctx.ellipse(0,0,5*s,8*s,0,0,6.2832); ctx.fill();
+  } else if(h.type==='sauce'){
+    ctx.fillStyle=P.sauce; ctx.beginPath(); ctx.ellipse(0,0,5*s,8*s,0,0,6.2832); ctx.fill();
+  } else if(h.type==='hairclump'){
+    C(0,0,5,P.hair); C(-4,1.5,3.4,P.hairMid); C(4,-1,3.2,P.hairMid); C(1,3.5,2.6,P.hairDeep);
+  } else {                                   // sweat
+    ctx.fillStyle='#a8d8f0'; ctx.beginPath();
+    ctx.moveTo(0,-9*s); ctx.quadraticCurveTo(5*s,2*s,0,8*s);
+    ctx.quadraticCurveTo(-5*s,2*s,0,-9*s); ctx.fill();
+    C(-1.6,-1,1.6,'#ffffff');
   }
   ctx.restore();
+}
+
+/* ---- the razor sweeping through stage 2 ---- */
+function drawRazorSweep(){
+  if(razorWarn>0 && !razor){
+    const y=player.y-20, a=0.4+Math.sin(perfNow*0.012)*0.3;
+    ctx.fillStyle='rgba(255,90,110,'+a+')';
+    ctx.fillRect(0,SY(y)-1,W,2);
+    ctx.fillStyle='#ff9aa8'; ctx.font='7px monospace'; ctx.textAlign='center';
+    ctx.fillText('RAZOR INCOMING', W/2, SY(y)-6); ctx.textAlign='left';
+  }
+  if(!razor) return;
+  drawRazor(razor.x, razor.y, razor.dir>0?0.12:-0.12, 1.5);
+  ctx.fillStyle='rgba(255,255,255,0.22)';
+  ctx.fillRect(SX(razor.x-razor.dir*300), SY(razor.y-30), Math.max(1,SS(300)), Math.max(1,SS(60)));
+}
+
+/* ---- collectibles ---- */
+function drawPowerups(){
+  for(const pu of powerups){
+    if(pu.taken || !onScreen(pu.x,pu.y,40)) continue;
+    const bob=Math.sin(perfNow*0.004+pu.x)*5;
+    const x=pu.x, y=pu.y+bob, s=SS(1);
+    ctx.save(); ctx.translate(SX(x),SY(y));
+    fEllLocal(0,13,13,4,'rgba(0,0,0,0.25)',s);
+    if(pu.type==='ball'){                                  // basketball
+      ctx.fillStyle='#ef8a2b'; ctx.beginPath(); ctx.arc(0,0,10*s,0,6.2832); ctx.fill();
+      ctx.strokeStyle='#5a2d0c'; ctx.lineWidth=Math.max(0.7,1.3*s);
+      ctx.beginPath(); ctx.arc(0,0,10*s,0,6.2832); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-10*s,0); ctx.lineTo(10*s,0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,-10*s); ctx.lineTo(0,10*s); ctx.stroke();
+      ctx.beginPath(); ctx.arc(-13*s,0,9*s,-0.9,0.9); ctx.stroke();
+      ctx.beginPath(); ctx.arc(13*s,0,9*s,2.24,4.04); ctx.stroke();
+    } else if(pu.type==='laptop'){                          // codering
+      ctx.fillStyle='#2c3340'; ctx.fillRect(-11*s,-9*s,22*s,14*s);
+      ctx.fillStyle='#101722'; ctx.fillRect(-9*s,-7*s,18*s,10*s);
+      ctx.fillStyle='#6ee7a0';
+      ctx.fillRect(-7*s,-5*s,8*s,1.6*s);
+      ctx.fillRect(-7*s,-2*s,12*s,1.6*s);
+      ctx.fillRect(-7*s,1*s,6*s,1.6*s);
+      ctx.fillStyle='#8b94a3'; ctx.fillRect(-13*s,5*s,26*s,3*s);
+    } else {                                                // APImatic badge
+      ctx.fillStyle='#1f6fd0'; ctx.fillRect(-12*s,-9*s,24*s,18*s);
+      ctx.fillStyle='#4a95ea'; ctx.fillRect(-12*s,-9*s,24*s,4*s);
+      ctx.fillStyle='#ffffff'; ctx.font=Math.max(4,Math.round(7*s))+'px monospace';
+      ctx.textAlign='center'; ctx.fillText('API',0,3*s); ctx.textAlign='left';
+    }
+    ctx.restore();
+  }
+}
+function fEllLocal(x,y,rx,ry,c,s){
+  ctx.fillStyle=c; ctx.beginPath(); ctx.ellipse(x*s,y*s,Math.max(.5,rx*s),Math.max(.5,ry*s),0,0,6.2832); ctx.fill();
+}
+
+/* ---- scenery easter eggs ---- */
+function drawEasterEggs(){
+  if(stage===1){
+    // a basketball lost in the beard
+    const bx=-760, by=980;
+    if(onScreen(bx,by,60)){
+      fCircle(bx,by,26,'#ef8a2b');
+      ctx.strokeStyle='#5a2d0c'; ctx.lineWidth=Math.max(0.6,SS(3));
+      ctx.beginPath(); ctx.arc(SX(bx),SY(by),Math.max(1,SS(26)),0,6.2832); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(SX(bx-26),SY(by)); ctx.lineTo(SX(bx+26),SY(by)); ctx.stroke();
+    }
+  }
+  if(stage===2){
+    // a sticky note on the forehead
+    const nx=640, ny=-1430;
+    if(onScreen(nx,ny,90)){
+      fRect(nx-54,ny-46,108,92,'#f4e06a');
+      fRect(nx-54,ny-46,108,10,'#e3cc4f');
+      ctx.fillStyle='#4a4327'; ctx.font=Math.max(4,Math.round(SS(17)))+'px monospace';
+      ctx.textAlign='center';
+      ctx.fillText('TODO:',SX(nx),SY(ny-6));
+      ctx.fillText('codering',SX(nx),SY(ny+16));
+      ctx.textAlign='left';
+    }
+    // a tiny hoop bolted to the temple
+    const hx=-980, hy=-1850;
+    if(onScreen(hx,hy,90)){
+      fRect(hx-34,hy-40,68,44,'#d8dde6');
+      fRect(hx-26,hy-32,52,28,'#eef2f7');
+      fRect(hx-4,hy+4,8,16,'#8d96a6');
+      ctx.strokeStyle='#e8622d'; ctx.lineWidth=Math.max(0.7,SS(5));
+      ctx.beginPath(); ctx.ellipse(SX(hx),SY(hy+26),Math.max(1,SS(26)),Math.max(1,SS(8)),0,0,6.2832); ctx.stroke();
+      ctx.fillStyle='rgba(255,255,255,0.55)';
+      for(let i=-22;i<=22;i+=9) ctx.fillRect(SX(hx+i),SY(hy+26),Math.max(.6,SS(2)),Math.max(1,SS(22)));
+    }
+  }
 }
 
 /* ===========================================================================
@@ -1261,18 +1496,20 @@ function drawBG(){
 function render(){
   drawBG();
   drawHasaan();
-  if(state==='cut'&&cutStage===0 || stage===0){
-    drawRoll(); drawHand();
-  }
+  if((state==='cut'&&cutStage===0) || (state!=='cut'&&stage===0)){ drawRoll(); drawHand(); }
+  if(state==='cut' && cutRazor) drawRazor(cutRazor.x,cutRazor.y,cutRazor.ang,cutRazor.s);
   if(state==='play'){
+    drawEasterEggs();
     for(const p of platforms) drawPlatform(p);
+    drawPowerups();
+    if(stage===1) drawRazorSweep();
     for(const h of hazards) drawHazard(h);
-    for(const p of parts){
-      const s=Math.max(1,SS(3));
-      ctx.fillStyle=p.c; ctx.fillRect(SX(p.x),SY(p.y),s,s);
+    for(const q of parts){
+      const sz=Math.max(1,SS(3));
+      ctx.fillStyle=q.c; ctx.fillRect(SX(q.x),SY(q.y),sz,sz);
     }
     const flick=player.invuln>0&&Math.floor(gameT*18)%2===0;
-    if(!flick) drawHero(player.x,player.y,player.st,player.fr,player.face,false);
+    if(!flick) drawHero(player.x,player.y,player.st,player.fr,player.face,player.dashT>0);
     drawHUD();
   }
   if(state==='cut') drawCutUI();
@@ -1288,11 +1525,40 @@ function drawHUD(){
     ctx.fillRect(x+1,y-1,3,2); ctx.fillRect(x+5,y-1,3,2);
   }
   const S=STAGES[stage];
+  // stamina (stage 2) / dash charge (stage 3)
+  if(S.ability==='grab'){
+    ctx.fillStyle='rgba(0,0,0,.4)'; ctx.fillRect(6,17,46,4);
+    ctx.fillStyle=player.stamina>0.3?'#6ee7a0':'#e8734a';
+    ctx.fillRect(6,17,46*clamp(player.stamina,0,1),4);
+  }
+  if(S.ability==='dash'){
+    ctx.fillStyle=player.dashLeft>0?'#7ee0ff':'#2e4150';
+    ctx.fillRect(6,17,10,5); ctx.fillRect(17,17,3,5);
+  }
+  // active buffs
+  let bx=W-10;
+  if(buffs.jump2>0){ ctx.fillStyle='#ef8a2b'; ctx.fillRect(bx-9,6,9,9); bx-=13;
+    ctx.fillStyle='rgba(255,255,255,.5)'; ctx.fillRect(bx+4,16,9*clamp(buffs.jump2/15,0,1),2); }
+  if(buffs.slow>0){ ctx.fillStyle='#6ee7a0'; ctx.fillRect(bx-9,6,9,9); bx-=13;
+    ctx.fillStyle='rgba(255,255,255,.5)'; ctx.fillRect(bx+4,16,9*clamp(buffs.slow/11,0,1),2); }
+
   const prog=clamp((S.start.y-player.y)/(S.start.y-S.finish),0,1);
-  ctx.fillStyle='rgba(0,0,0,.35)'; ctx.fillRect(W-6,18,3,H-56);
-  ctx.fillStyle='#ffd95e'; ctx.fillRect(W-6,18+(H-56)*(1-prog),3,4);
-  ctx.fillStyle='#8fa0b4'; ctx.font='7px monospace'; ctx.textAlign='right';
-  ctx.fillText(S.sub.toUpperCase(), W-12, 13); ctx.textAlign='left';
+  ctx.fillStyle='rgba(0,0,0,.35)'; ctx.fillRect(W-6,26,3,H-64);
+  ctx.fillStyle='#ffd95e'; ctx.fillRect(W-6,26+(H-64)*(1-prog),3,4);
+  ctx.fillStyle='#8fa0b4'; ctx.font='7px monospace'; ctx.textAlign='center';
+  ctx.fillText(S.sub.toUpperCase(), W/2, 11); ctx.textAlign='left';
+
+  if(tipT>0 && bannerT<=0){
+    ctx.globalAlpha=Math.min(1,tipT/0.8);
+    ctx.fillStyle='#cfd6e0'; ctx.font='7px monospace'; ctx.textAlign='center';
+    ctx.fillText(S.tip, W/2, H-10); ctx.textAlign='left'; ctx.globalAlpha=1;
+  }
+  if(eggMsgT>0){
+    ctx.globalAlpha=Math.min(1,eggMsgT/0.6);
+    ctx.fillStyle='rgba(8,8,14,.72)'; ctx.fillRect(0,H-34,W,16);
+    ctx.fillStyle='#ffd95e'; ctx.font='8px monospace'; ctx.textAlign='center';
+    ctx.fillText(eggMsg, W/2, H-23); ctx.textAlign='left'; ctx.globalAlpha=1;
+  }
   if(bannerT>0){
     ctx.globalAlpha=Math.min(1,bannerT/0.6);
     ctx.fillStyle='rgba(6,6,12,.74)'; ctx.fillRect(0,H/2-20,W,30);
@@ -1301,6 +1567,7 @@ function drawHUD(){
     ctx.textAlign='left'; ctx.globalAlpha=1;
   }
 }
+
 function drawCutUI(){
   const fade=clamp(1-cutT/0.6,0,1);
   if(fade>0){ ctx.fillStyle='rgba(0,0,0,'+fade+')'; ctx.fillRect(0,0,W,H); }
@@ -1340,14 +1607,20 @@ function drawDead(){
   ctx.textAlign='left';
 }
 function drawWin(){
-  ctx.fillStyle='rgba(8,10,20,.8)'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='rgba(8,10,20,.82)'; ctx.fillRect(0,0,W,H);
   ctx.textAlign='center'; ctx.fillStyle='#ffd95e'; ctx.font='14px monospace';
-  ctx.fillText('SUMMIT REACHED',W/2,180);
+  ctx.fillText('SUMMIT REACHED',W/2,150);
   ctx.fillStyle='#e8e8ff'; ctx.font='8px monospace';
-  ctx.fillText('the paratha, the beard, the forehead.',W/2,204);
-  ctx.fillText('all of Hasaan, conquered.',W/2,218);
+  ctx.fillText('the paratha. the beard. the forehead.',W/2,176);
+  ctx.fillText('all of Hasaan, conquered.',W/2,190);
+  ctx.fillStyle='#9fd4ef'; ctx.font='8px monospace';
+  ctx.fillText('basketballs '+collected.ball+'   codering '+collected.laptop+'   APImatic '+collected.badge, W/2, 218);
+  if(collected.ball&&collected.laptop&&collected.badge){
+    ctx.fillStyle='#6ee7a0'; ctx.font='8px monospace';
+    ctx.fillText('FULL STACK: dunked, codered and deployed',W/2,238);
+  }
   if(Math.floor(gameT*2)%2===0){ ctx.fillStyle='#fff'; ctx.font='9px monospace';
-    ctx.fillText('PRESS ANY KEY',W/2,260); }
+    ctx.fillText('PRESS ANY KEY',W/2,290); }
   ctx.textAlign='left';
 }
 
