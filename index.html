@@ -1469,6 +1469,25 @@ function fEllLocal(x,y,rx,ry,c,s){
 
 /* ---- scenery easter eggs ---- */
 function drawEasterEggs(){
+  if(stage===0){
+    // a codering sticker next to the APImatic one, and a ball balanced on a finger
+    const foilTop=ROLL.bottom-330;
+    if(cam.zoom>0.45 && onScreen(0,foilTop+300,200)){
+      fRect(-80,foilTop+230,160,62,'#15202b');
+      ctx.fillStyle='#6ee7a0';
+      ctx.font=Math.max(4,Math.round(SS(30)))+'px monospace';
+      ctx.textAlign='center';
+      ctx.fillText('> codering',SX(0),SY(foilTop+270));
+      ctx.textAlign='left';
+    }
+    const bx=ROLL.r+120, by=HAND.y+40;
+    if(onScreen(bx,by,60)){
+      fCircle(bx,by,22,'#ef8a2b');
+      ctx.strokeStyle='#5a2d0c'; ctx.lineWidth=Math.max(0.6,SS(2.6));
+      ctx.beginPath(); ctx.arc(SX(bx),SY(by),Math.max(1,SS(22)),0,6.2832); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(SX(bx-22),SY(by)); ctx.lineTo(SX(bx+22),SY(by)); ctx.stroke();
+    }
+  }
   if(stage===1){
     // a basketball lost in the beard
     const bx=-760, by=980;
@@ -1523,7 +1542,19 @@ function render(){
     drawEasterEggs();
     for(const p of platforms) drawPlatform(p);
     drawPowerups();
-    if(stage===1) drawRazorSweep();
+    if(stage===1){
+      drawRazorSweep();
+      if(!player.grabbing) for(const w of hairWalls){
+        if(w.shorn>0) continue;
+        if(Math.abs((w.x+w.w/2)-(player.x+5))<52 && player.y+player.h>w.y && player.y<w.y+w.h){
+          const bx=w.x+w.w/2, by=player.y-14+Math.sin(perfNow*0.006)*3;
+          fRect(bx-6,by-9,12,12,'rgba(10,10,16,.75)');
+          ctx.fillStyle='#ffd95e'; ctx.font='8px monospace'; ctx.textAlign='center';
+          ctx.fillText('X',SX(bx),SY(by)); ctx.textAlign='left';
+          break;
+        }
+      }
+    }
     for(const h of hazards) drawHazard(h);
     for(const q of parts){
       const sz=Math.max(1,SS(3));
@@ -1533,10 +1564,46 @@ function render(){
     if(!flick) drawHero(player.x,player.y,player.st,player.fr,player.face,player.dashT>0);
     drawHUD();
   }
+  if(paused && state==='play'){
+    ctx.fillStyle='rgba(5,6,12,.72)'; ctx.fillRect(0,0,W,H);
+    ctx.textAlign='center'; ctx.fillStyle='#ffd95e'; ctx.font='13px monospace';
+    ctx.fillText('PAUSED',W/2,H/2-6);
+    ctx.fillStyle='#cfd6e0'; ctx.font='8px monospace';
+    ctx.fillText('esc to resume',W/2,H/2+12); ctx.textAlign='left';
+  }
   if(state==='cut') drawCutUI();
   if(state==='title') drawTitle();
   if(state==='dead') drawDead();
   if(state==='win') drawWin();
+}
+
+/* A tiny Hasaan in the corner with a marker for the climber, so his whole
+   face is on screen even while the camera is buried in one feature of it. */
+function drawFaceInset(){
+  const x=W-38, y=30, w=30, h=92;
+  const yTop=-3100, yBot=5600;                 // hair summit .. bottom of the roll
+  const map=v=>y+h*clamp((v-yTop)/(yBot-yTop),0,1);
+  ctx.fillStyle='rgba(8,10,16,.55)'; ctx.fillRect(x-3,y-3,w+6,h+6);
+  const cx=x+w/2;
+  // the roll
+  ctx.fillStyle=P.parDk; ctx.fillRect(cx-4,map(ROLL.top),8,map(ROLL.bottom)-map(ROLL.top));
+  ctx.fillStyle=P.par;   ctx.fillRect(cx-4,map(ROLL.top),4,map(ROLL.bottom)-map(ROLL.top));
+  // head
+  const hy=map(A.cranTop), cy=map(A.chin);
+  ctx.fillStyle=P.skin;
+  ctx.beginPath(); ctx.ellipse(cx,(hy+cy)/2,w/2-1,(cy-hy)/2,0,0,6.2832); ctx.fill();
+  // hair
+  ctx.fillStyle=P.hair;
+  ctx.beginPath(); ctx.ellipse(cx,map(A.hairTop)+5,w/2,(map(A.hairline)-map(A.hairTop))/1.2,0,0,6.2832); ctx.fill();
+  // beard
+  ctx.fillStyle=P.hairMid;
+  ctx.beginPath(); ctx.ellipse(cx,map(A.lipY+520),w/2-2,(cy-map(A.lipY))/1.5,0,0,6.2832); ctx.fill();
+  // eyes, so it reads as a face at this size
+  ctx.fillStyle=P.eyeW; ctx.fillRect(cx-6,map(A.eyeY),3,2); ctx.fillRect(cx+3,map(A.eyeY),3,2);
+  // the climber
+  const my=map(player.y), mx=cx+clamp(player.x/1250,-1,1)*(w/2-3);
+  ctx.fillStyle='#ffd95e'; ctx.fillRect(mx-1.5,my-1.5,3,3);
+  if(Math.floor(gameT*3)%2===0){ ctx.fillStyle='rgba(255,217,94,.5)'; ctx.fillRect(mx-3,my-3,6,6); }
 }
 
 function drawHUD(){
@@ -1563,9 +1630,10 @@ function drawHUD(){
   if(buffs.slow>0){ ctx.fillStyle='#6ee7a0'; ctx.fillRect(bx-9,6,9,9); bx-=13;
     ctx.fillStyle='rgba(255,255,255,.5)'; ctx.fillRect(bx+4,16,9*clamp(buffs.slow/11,0,1),2); }
 
+  drawFaceInset();
   const prog=clamp((S.start.y-player.y)/(S.start.y-S.finish),0,1);
-  ctx.fillStyle='rgba(0,0,0,.35)'; ctx.fillRect(W-6,26,3,H-64);
-  ctx.fillStyle='#ffd95e'; ctx.fillRect(W-6,26+(H-64)*(1-prog),3,4);
+  ctx.fillStyle='rgba(0,0,0,.35)'; ctx.fillRect(4,H-8,W-8,3);
+  ctx.fillStyle='#ffd95e'; ctx.fillRect(4,H-8,(W-8)*prog,3);
   ctx.fillStyle='#8fa0b4'; ctx.font='7px monospace'; ctx.textAlign='center';
   ctx.fillText(S.sub.toUpperCase(), W/2, 11); ctx.textAlign='left';
 
@@ -1661,6 +1729,8 @@ let last=performance.now();
 function update(dt){
   gameT+=dt; perfNow=performance.now();
   if(bannerT>0) bannerT-=dt;
+  if(kj('Escape')||kj('KeyP')){ if(state==='play') paused=!paused; }
+  if(paused) return;
   if(state==='title') updateTitle(dt);
   else if(state==='cut') updateCutscene(dt);
   else if(state==='play') updatePlay(dt, input());
